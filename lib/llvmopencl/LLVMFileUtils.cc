@@ -24,14 +24,19 @@
  *
  * File utility functions based on LLVM APIs.
  *
- * @author Michal Babej 2016
+ * @author Michal Babej 2016. 2017
  */
+
+#include "config.h"
 
 #if !defined(_MSC_VER) && !defined(__MINGW32__)
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#ifdef HAVE_UTIME
+#include <utime.h>
+#endif
 #else
 #include <io.h>
 #endif
@@ -47,23 +52,18 @@
 
 #include "pocl.h"
 #include "pocl_file_util.h"
+#include "pocl_timing.h"
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
-
-#include <llvm/Support/LockFileManager.h>
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_os_ostream.h"
 
-#ifdef LLVM_OLDER_THAN_4_0
-#include "llvm/Bitcode/ReaderWriter.h"
-#else
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#endif
 
 #include <llvm/Support/Errc.h>
 
@@ -71,13 +71,27 @@ POP_COMPILER_DIAGS
 
 #define RETURN_IF_EC if (ec) return ec.default_error_condition().value()
 #define OPEN_FOR_READ ec = sys::fs::openFileForRead(p, fd)
-#define OPEN_CREATE ec = sys::fs::openFileForWrite(p, fd, sys::fs::F_RW | sys::fs::F_Excl)
-#define OPEN_FOR_APPEND ec = sys::fs::openFileForWrite(p, fd, sys::fs::F_RW | sys::fs::F_Append)
+#define CREATE_UNIQUE_FILE(S)                                                  \
+  ec = sys::fs::createUniqueFile((p + S), fd, TmpPath,                         \
+                                 sys::fs::perms::owner_read |                  \
+                                     sys::fs::perms::owner_write);
 
-/* #define to disable locking completely */
-#undef DISABLE_LOCKMANAGER
+#ifdef LLVM_OLDER_THAN_7_0
+#define OPEN_CREATE ec = sys::fs::openFileForWrite(p, fd, sys::fs::F_RW)
+#define OPEN_FOR_APPEND                                                        \
+  ec = sys::fs::openFileForWrite(p, fd, sys::fs::F_RW | sys::fs::F_Append)
+#else
+#define OPEN_CREATE                                                            \
+  ec = sys::fs::openFileForWrite(p, fd, sys::fs::CD_CreateAlways,              \
+                                 sys::fs::OF_None)
+#define OPEN_FOR_APPEND                                                        \
+  ec = sys::fs::openFileForWrite(p, fd, sys::fs::CD_CreateAlways,              \
+                                 sys::fs::OF_Append)
+#endif
 
 using namespace llvm;
+
+static const Twine random_pattern("-%%-%%-%%-%%-%%");
 
 /*****************************************************************************/
 
@@ -114,6 +128,7 @@ pocl_rm_rf(const char* path) {
         RETURN_IF_EC;
     }
 
+    sys::fs::remove(Twine(path));
     return 0;
 }
 
@@ -132,215 +147,295 @@ pocl_remove(const char* path) {
     return ec.default_error_condition().value();
 }
 
+int pocl_remove2(Twine &p) {
+  std::error_code ec = sys::fs::remove(p, true);
+  return ec.default_error_condition().value();
+}
+
+int pocl_exists2(Twine &p) {
+  return (sys::fs::exists(p) ? 1 : 0);
+}
+
 int
 pocl_exists(const char* path) {
     Twine p(path);
-    if (sys::fs::exists(p))
-        return 1;
-    else
-        return 0;
+    return pocl_exists2(p);
 }
 
-int
-pocl_filesize(const char* path, uint64_t* res) {
-    Twine p(path);
-    std::error_code ec = sys::fs::file_size(p, *res);
-    return ec.default_error_condition().value();
-}
 
 int pocl_touch_file(const char* path) {
+#ifdef HAVE_UTIME
+    int res = utime(path, NULL);
+    return (res ? errno : 0);
+#elif defined(HAVE_FUTIMENS)
     Twine p(path);
-    std::error_code ec = sys::fs::remove(p, true);
-    RETURN_IF_EC;
-
     int fd;
+    std::error_code ec;
+
     OPEN_CREATE;
     RETURN_IF_EC;
+    futimens(fd, NULL);
 
-    return (close(fd) ? (-errno) : 0);
-
+    return (close(fd) ? errno : 0);
+#else
+#warning No utime or futimens found, pocl will not update cache timestamps
+    return 0;
+#endif
 }
 
 int pocl_rename(const char *oldpath, const char *newpath) {
-
     Twine op(oldpath);
     Twine np(newpath);
     std::error_code ec = sys::fs::rename(op, np);
     return ec.default_error_condition().value();
 }
 
+int pocl_rename2(Twine &op, Twine &np) {
+  std::error_code ec = sys::fs::rename(op, np);
+  return ec.default_error_condition().value();
+}
+
+int pocl_mk_tempdir(char *output, const char *prefix) {
+  Twine p(prefix);
+  SmallString<512> TmpPath;
+
+  std::error_code ec = sys::fs::createUniqueDirectory(p, TmpPath);
+  RETURN_IF_EC;
+
+  strncpy(output, TmpPath.c_str(), POCL_FILENAME_LENGTH);
+  return 0;
+}
+
+int pocl_mk_tempname(char *output, const char *prefix, const char *suffix,
+                     int *ret_fd) {
+  Twine p(prefix);
+  if (suffix == NULL)
+    suffix = "";
+  Twine suf(suffix);
+
+  SmallString<512> TmpPath;
+  int fd;
+  std::error_code ec;
+
+  CREATE_UNIQUE_FILE(random_pattern + suf);
+  RETURN_IF_EC;
+
+  if (ret_fd)
+    *ret_fd = fd;
+  else {
+    if (close(fd))
+      return errno ? -errno : -1;
+  }
+
+  strncpy(output, TmpPath.c_str(), POCL_FILENAME_LENGTH);
+  return 0;
+}
+
 /****************************************************************************/
+
+#define CHUNK_SIZE (2 * 1024 * 1024)
 
 int
 pocl_read_file(const char* path, char** content, uint64_t *filesize) {
     assert(content);
     assert(path);
     assert(filesize);
+    *content = nullptr;
+    *filesize = 0;
 
-    *content = NULL;
+    int fd;
+    std::error_code ec;
+    Twine p(path);
 
-    int errcode = pocl_filesize(path, filesize);
-    ssize_t fsize = (ssize_t)(*filesize);
-    if (!errcode) {
-        int fd;
-        std::error_code ec;
-        Twine p(path);
+    /* files in /proc return zero size, while
+       files in /sys return size larger than actual content size;
+       this reads the content sequentially.  */
+    ssize_t total_size = 0;
+    ssize_t actually_read = 0;
+    char *ptr = (char *)malloc(CHUNK_SIZE + 1);
+    if (ptr == nullptr)
+      return -1;
 
-        OPEN_FOR_READ;
-        RETURN_IF_EC;
+    ec = sys::fs::openFileForRead(p, fd);
+    if (ec)
+      goto ERROR;
 
-        // +1 so we can later simply turn it into a C string, if needed
-        *content = (char*)malloc(fsize+1);
+    do {
+      char *reallocated = (char *)realloc(ptr, (total_size + CHUNK_SIZE + 1));
+      if (reallocated == NULL)
+        goto ERROR;
+      ptr = reallocated;
 
-        size_t rsize = read(fd, *content, fsize);
-        (*content)[rsize] = '\0';
-        if (rsize < (size_t)fsize) {
-            errcode = errno ? -errno : -1;
-            close(fd);
-        } else {
-            if (close(fd))
-                errcode = errno ? -errno : -1;
-        }
-    }
-    return errcode;
+      actually_read = read(fd, ptr + total_size, CHUNK_SIZE);
+      if (actually_read > 0)
+        total_size += actually_read;
+
+    } while (actually_read > 0);
+
+    if (actually_read < 0)
+      goto ERROR;
+
+    if (close(fd))
+      goto ERROR;
+
+  /* add an extra NULL character for strings */
+    ptr[total_size] = 0;
+    *content = ptr;
+    *filesize = (uint64_t)total_size;
+    return 0;
+
+ERROR:
+    free (ptr);
+    return -1;
 }
 
-
-/* Atomic write - with rename()
- * NOTE: still requires a pocl lock before attempting it - because the tempfile
- * name is not random */
+/* Atomic write - with rename() */
 int pocl_write_file(const char *path, const char *content, uint64_t count,
                     int append, int dont_rewrite) {
     int fd;
     std::error_code ec;
-    std::string TmpPath(path);
-    TmpPath.append(".tmp");
 
     assert(path);
     assert(content);
+    Twine p(path);
+    SmallVector<char, 128> TmpPath;
 
-    if (pocl_exists(path)) {
-        if (dont_rewrite) {
-            if (!append)
-                return 0;
-        } else {
-            int res = pocl_remove(path);
-            if (res)
-                return res;
-        }
+    if (pocl_exists2(p)) {
+      if (dont_rewrite) {
+        if (!append)
+          return 0;
+      } else {
+        int res = pocl_remove2(p);
+        if (res)
+          return res;
+      }
     }
 
     if (append) {
-        Twine p(path);
         OPEN_FOR_APPEND;
+        assert(fd >= 0);
     } else {
-        Twine p(TmpPath);
-        OPEN_CREATE;
+      CREATE_UNIQUE_FILE(random_pattern);
+      assert(fd >= 0);
     }
 
     RETURN_IF_EC;
 
     if (write(fd, content, (ssize_t)count) < (ssize_t)count)
-        return errno ? -errno : -1;
+      return errno ? -errno : -1;
+
+#ifdef HAVE_FDATASYNC
+    if (fdatasync(fd))
+      return errno ? -errno : -1;
+#elif defined(HAVE_FSYNC)
+    if (fsync(fd))
+      return errno ? -errno : -1;
+#endif
 
     if (close(fd))
       return -errno;
 
     if (append)
       return 0;
-    else
-      return pocl_rename(TmpPath.c_str(), path);
+    else {
+      Twine t(TmpPath);
+      return pocl_rename2(t, p);
+    }
 }
 
+/* write content[count] into a temporary file, and return the tempfile name in
+ * output_path */
+int pocl_write_tempfile(char *output_path, const char *prefix,
+                        const char *suffix, const char *content,
+                        uint64_t count, int *ret_fd) {
+  int fd;
+  std::error_code ec;
 
+  assert(output_path);
+  assert(content);
+  Twine p(prefix);
+  if (suffix == NULL)
+    suffix = "";
+  Twine suf(suffix);
+  SmallString<512> TmpPath;
 
+  CREATE_UNIQUE_FILE(random_pattern + suf);
+  RETURN_IF_EC;
+  assert(fd >= 0);
 
-/* Atomic write of IR - with rename()
- * NOTE: still requires a pocl lock before attempting it - because the tempfile
- * name is not random */
+  ssize_t writeb = write(fd, content, (ssize_t)count);
+  if (writeb < (ssize_t)count) {
+    return errno ? -errno : -1;
+  }
+
+#ifdef HAVE_FDATASYNC
+  if (fdatasync(fd)) {
+    return errno ? -errno : -1;
+  }
+#elif defined(HAVE_FSYNC)
+  if (fsync(fd))
+    return errno ? -errno : -1;
+#endif
+
+  if (ret_fd)
+    *ret_fd = fd;
+  else
+    close(fd);
+
+  strncpy(output_path, TmpPath.c_str(), POCL_FILENAME_LENGTH);
+  return 0;
+}
+
+/* Atomic write of IR - with rename() */
 int pocl_write_module(void *module, const char* path, int dont_rewrite) {
 
     assert(module);
     assert(path);
-
+    int fd;
     Twine p(path);
     std::error_code ec;
 
-    if (pocl_exists(path)) {
-        if (dont_rewrite)
-            return 0;
-        else {
-            int res = pocl_remove(path);
-            if (res)
-                return res;
-        }
+    if (pocl_exists2(p)) {
+      if (dont_rewrite)
+        return 0;
+      else {
+        int res = pocl_remove2(p);
+        if (res)
+          return res;
+      }
     }
+
     /* To avoid corrupted .bc files, create a tmp file first and
        then rename it */
-    std::string TmpPath(path);
-    TmpPath.append(".tmp");
+    SmallVector<char, 128> TmpPath;
+    CREATE_UNIQUE_FILE(random_pattern);
+    assert(fd >= 0);
 
-    raw_fd_ostream os(TmpPath, ec, sys::fs::F_RW | sys::fs::F_Excl);
+#ifdef LLVM_OLDER_THAN_7_0
+    raw_fd_ostream os(fd, 1, sys::fs::F_RW | sys::fs::F_Excl);
     RETURN_IF_EC;
-
     WriteBitcodeToFile((llvm::Module*)module, os);
+#else
+    raw_fd_ostream os(fd, true);
+    RETURN_IF_EC;
+    WriteBitcodeToFile(*(llvm::Module*)module, os);
+#endif
+
+    os.flush();
+#ifdef HAVE_FDATASYNC
+    if (fdatasync(fd))
+      return errno ? -errno : -1;
+#elif defined(HAVE_FSYNC)
+    if (fsync(fd))
+      return errno ? -errno : -1;
+#endif
+
     os.close();
     if (os.has_error())
       return 1;
 
-    return pocl_rename(TmpPath.c_str(), path);
+    Twine t(TmpPath);
+    return pocl_rename2(t, p);
 }
-
-
 
 /****************************************************************************/
-
-static void* acquire_lock_internal(const char* path, int shared) {
-#ifdef DISABLE_LOCKMANAGER
-    /* Can't return value that compares equal to NULL */
-    return (void*)4096;
-#else
-    assert(path);
-    LockFileManager *lfm = new LockFileManager(path);
-
-    switch (lfm->getState()) {
-    case LockFileManager::LockFileState::LFS_Owned:
-        return (void*)lfm;
-
-    case LockFileManager::LockFileState::LFS_Shared:
-        if (shared)
-            return (void*)lfm;
-        lfm->waitForUnlock();
-        delete lfm;
-        lfm = new LockFileManager(path);
-        if (lfm->getState() == LockFileManager::LockFileState::LFS_Owned)
-            return (void*)lfm;
-        else
-          {
-            delete lfm;
-            return NULL;
-          }
-
-    case LockFileManager::LockFileState::LFS_Error:
-        return NULL;
-    }
-    return NULL;
-#endif
-}
-
-
-void* acquire_lock(const char *path, int shared) {
-    return acquire_lock_internal(path, shared);
-}
-
-
-void release_lock(void* lock) {
-#ifdef DISABLE_LOCKMANAGER
-    return;
-#else
-    if (!lock)
-        return;
-    LockFileManager *l = (LockFileManager*)lock;
-    delete l;
-#endif
-}

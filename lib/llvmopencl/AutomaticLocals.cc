@@ -1,17 +1,18 @@
 // LLVM module pass to process automatic locals.
-// 
+//
 // Copyright (c) 2011 Universidad Rey Juan Carlos
-// 
+//               2012-2019 Pekka Jääskeläinen
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -23,7 +24,8 @@
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
-#include "pocl.h"
+#include "pocl_cl.h"
+#include "pocl_spir.h"
 
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
@@ -39,6 +41,7 @@ IGNORE_COMPILER_WARNING("-Wunused-parameter")
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 
+#include "AutomaticLocals.h"
 #include "LLVMUtils.h"
 #include "Workgroup.h"
 
@@ -53,7 +56,10 @@ namespace {
 
   public:
     static char ID;
-    AutomaticLocals() : ModulePass(ID) {}
+    pocl_autolocals_to_args_strategy autolocals_to_args;
+    AutomaticLocals(pocl_autolocals_to_args_strategy autolocals_to_args =
+                        POCL_AUTOLOCALS_TO_ARGS_ALWAYS)
+        : ModulePass(ID), autolocals_to_args(autolocals_to_args) {}
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const;
     virtual bool runOnModule(Module &M);
@@ -63,24 +69,25 @@ namespace {
   };
 }
 
+llvm::ModulePass *pocl::createAutomaticLocalsPass(
+    pocl_autolocals_to_args_strategy autolocals_to_args) {
+  return new AutomaticLocals(autolocals_to_args);
+}
+
 char AutomaticLocals::ID = 0;
 static RegisterPass<AutomaticLocals> X("automatic-locals",
 				      "Processes automatic locals");
 
-#if (LLVM_OLDER_THAN_3_7)
-void
-AutomaticLocals::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<DataLayoutPass>();
-}
-#else
 void
 AutomaticLocals::getAnalysisUsage(AnalysisUsage &) const {
 }
-#endif
 
 bool
 AutomaticLocals::runOnModule(Module &M)
 {
+  if (autolocals_to_args == POCL_AUTOLOCALS_TO_ARGS_NEVER) {
+    return false;
+  }
   bool changed = false;
 
   // store the new and old kernel pairs in order to regenerate
@@ -160,6 +167,7 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
     FuncName = F->getName().str();
     if (isAutomaticLocal(FuncName, *i)) {
       Locals.push_back(&*i);
+
       // Add the parameters to the end of the function parameter list.
       Parameters.push_back(i->getType());
 
@@ -172,6 +180,21 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
   if (Locals.empty()) {
     // This kernel fingerprint has not changed.
     return F;
+  }
+
+  if (autolocals_to_args ==
+      POCL_AUTOLOCALS_TO_ARGS_ONLY_IF_DYNAMIC_LOCALS_PRESENT) {
+    bool NeedsArgOffsets = false;
+    for (auto &Arg : F->args()) {
+      // Check for local memory pointer.
+      llvm::Type *ArgType = Arg.getType();
+      if (ArgType->isPointerTy() && ArgType->getPointerAddressSpace() == 3) {
+        NeedsArgOffsets = true;
+        break;
+      }
+    }
+    if (!NeedsArgOffsets)
+      return F;
   }
 
   // Create the new function.
@@ -195,8 +218,17 @@ AutomaticLocals::processAutomaticLocals(Function *F) {
   }
 
   SmallVector<ReturnInst *, 1> RI;
-  CloneFunctionInto(NewKernel, F, VV, false, RI);
 
+  // As of LLVM 5.0 we need to let CFI to make module level changes,
+  // otherwise there will be an assertion. The changes are likely
+  // additional debug info nodes added when cloning the function into
+  // the other.  For some reason it doesn't want to reuse the old ones.
+  CloneFunctionInto(NewKernel, F, VV, true, RI);
+
+  for (size_t i = 0; i < Locals.size(); ++i) {
+    setFuncArgAddressSpaceMD(NewKernel, F->arg_size() + i,
+                             SPIR_ADDRESS_SPACE_LOCAL);
+  }
   return NewKernel;
 }
 

@@ -1,8 +1,7 @@
-// LLVM function pass to convert the sampler initializer calls to a target
-// desired format
+// Lightweight bitcode linker to replace llvm::Linker.
 //
 // Copyright (c) 2014 Kalle Raiskila
-//               2016-2017 Pekka Jääskeläinen / Tampere University of Technology
+//               2016-2019 Pekka Jääskeläinen
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,15 +21,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-/*
-   Lightweight bitcode linker to replace
-   llvm::Linker. Unlike the LLVM default linker, this
-   does not link in the entire given module, only
-   the called functions are cloned from the input.
-   This is to speed up the linking of the kernel lib
-   which is so big, that it takes seconds to clone it,
-   even on top-of-the line current processors
-*/
+/* Lightweight bitcode linker to replace llvm::Linker. Unlike the LLVM default
+   linker, this does not link in the entire given module, only the called
+   functions are cloned from the input. This is to speed up the linking of the
+   kernel lib which is so big, that it takes seconds to clone it,  even on
+   top-of-the line current processors. */
 
 #include <list>
 #include <iostream>
@@ -38,16 +33,18 @@
 #include "config.h"
 #include "pocl.h"
 
+#include "CompilerWarnings.h"
+IGNORE_COMPILER_WARNING("-Wunused-parameter")
+
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "pocl_cl.h"
 
 #include "linker.h"
-
-#include "TargetAddressSpaces.h"
 
 using namespace llvm;
 
@@ -89,13 +86,8 @@ static void fixOpenCLimageArguments(llvm::Function *Func) {
         if (t->isPointerTy() && t->getPointerElementType()->isStructTy()) {
             Type *pe_type = t->getPointerElementType();
             if (pe_type->getStructName().startswith("opencl.image"))  {
-#ifdef POCL_USE_FAKE_ADDR_SPACE_IDS
-              Type *new_t =
-                PointerType::get(pe_type, POCL_FAKE_AS_GLOBAL);
-#else
               Type *new_t =
                 PointerType::get(pe_type, currentPoclDevice->global_as_id);
-#endif
               j->mutateType(new_t);
             }
         }
@@ -124,17 +116,10 @@ CloneFuncFixOpenCLImageT(llvm::Module *Mod, llvm::Function *F)
           Type *pe_type = t->getPointerElementType();
           if (pe_type->getStructName().startswith("opencl.image")) {
 
-#ifdef POCL_USE_FAKE_ADDR_SPACE_IDS
-            if (t->getPointerAddressSpace() != POCL_FAKE_AS_GLOBAL) {
-              new_t = PointerType::get(pe_type, POCL_FAKE_AS_GLOBAL);
-              changed = 1;
-            }
-#else
             if (t->getPointerAddressSpace() != currentPoclDevice->global_as_id) {
               new_t = PointerType::get(pe_type, currentPoclDevice->global_as_id);
               changed = 1;
             }
-#endif
           }
         }
         sv.push_back(new_t);
@@ -263,7 +248,7 @@ CopyFunc(const llvm::StringRef Name,
  * that are defined in 'from', into 'to', adding the mappings to
  * 'vvm'.
  */
-static void
+static int
 copy_func_callgraph(const llvm::StringRef func_name,
                     const llvm::Module *  from,
                     llvm::Module *        to,
@@ -271,7 +256,7 @@ copy_func_callgraph(const llvm::StringRef func_name,
     std::list<llvm::StringRef> callees;
     llvm::Function *RootFunc = from->getFunction(func_name);
     if (RootFunc == NULL)
-      return;
+      return -1;
     DB_PRINT("copying function %s with callgraph\n", RootFunc.data());
 
     find_called_functions(RootFunc, callees);
@@ -291,6 +276,7 @@ copy_func_callgraph(const llvm::StringRef func_name,
       CopyFunc(*ci, from, to, vvm);
     }
     CopyFunc(func_name, from, to, vvm);
+    return 0;
 }
 
 static inline bool
@@ -298,85 +284,27 @@ stringref_equal(llvm::StringRef a, llvm::StringRef b)
 {
     return a.equals(b);
 }
+
 static inline bool
 stringref_cmp(llvm::StringRef a, llvm::StringRef b)
 {
     return a.str() < b.str();
 }
 
-void
-link(llvm::Module *krn, const llvm::Module *lib)
-{
-  assert(krn);
-  assert(lib);
-  ValueToValueMapTy vvm;
-  std::list<llvm::StringRef> declared;
+static void shared_copy(llvm::Module *program, const llvm::Module *lib,
+                        std::string &log, ValueToValueMapTy &vvm) {
 
-  llvm::Module::iterator fi, fe;
-
-  // Find and fix opencl.imageX_t arguments
-  for (fi = krn->begin(), fe = krn->end(); fi != fe; fi++) {
-    llvm::Function *f = &*fi;
-    if (f->isDeclaration())
-      continue;
-    // need to restart iteration if we replace a function
-    if (CloneFuncFixOpenCLImageT(krn, f) != f) {
-      fi = krn->begin();
-    }
-  }
-
-  // Inspect the kernel, find undefined functions
-  for (fi = krn->begin(), fe = krn->end();  fi != fe; fi++) {
-    if ((*fi).isDeclaration()) {
-      DB_PRINT("%s is not defined\n", fi->getName().data());
-      declared.push_back(fi->getName());
-      continue;
-    }
-
-    // Find all functions the kernel source calls
-    // TODO: is there no direct way?
-    find_called_functions(&*fi, declared);
-  }
-  declared.sort(stringref_cmp);
-  declared.unique(stringref_equal);
-
-  // Copy all the globals from lib to krn.
-  // It probably is faster to just copy them all, than to inspect
-  // both krn and lib to find which actually are used.
-  DB_PRINT("cloning the global variables:\n");
   llvm::Module::const_global_iterator gi,ge;
-  for (gi=lib->global_begin(), ge=lib->global_end(); gi != ge; gi++) {
-    DB_PRINT(" %s\n", gi->getName().data());
-    GlobalVariable *GV = new GlobalVariable(
-      *krn, gi->getType()->getElementType(), gi->isConstant(),
-      gi->getLinkage(), (Constant*)0, gi->getName(), (GlobalVariable*)0,
-      gi->getThreadLocalMode(), gi->getType()->getAddressSpace());
-    GV->copyAttributesFrom(&*gi);
-    vvm[&*gi]=GV;
-  }
 
-  // For each undefined function in krn, clone it from the lib to the krn module,
-  // if found in lib
-  std::list<llvm::StringRef>::iterator di,de;
-  for (di = declared.begin(), de = declared.end();
-       di != de; di++) {
-      copy_func_callgraph(*di, lib, krn, vvm);
-  }
-
-  // copy any aliases to krn
+  // copy any aliases to program
   DB_PRINT("cloning the aliases:\n");
   llvm::Module::const_alias_iterator ai, ae;
   for (ai = lib->alias_begin(), ae = lib->alias_end(); ai != ae; ai++) {
     DB_PRINT(" %s\n", ai->getName().data());
     GlobalAlias *GA =
-#ifndef LLVM_3_7
       GlobalAlias::create(
-	ai->getType(), ai->getType()->getAddressSpace(), ai->getLinkage(),
-	ai->getName(), NULL, krn);
-#else
-    GlobalAlias::create(
-	ai->getType(), ai->getLinkage(), ai->getName(), NULL, krn);
-#endif
+        ai->getType(), ai->getType()->getAddressSpace(), ai->getLinkage(),
+        ai->getName(), NULL, program);
 
     GA->copyAttributesFrom(&*ai);
     vvm[&*ai]=GA;
@@ -396,12 +324,162 @@ link(llvm::Module *krn, const llvm::Module *lib)
   llvm::Module::const_named_metadata_iterator mi,me;
   for (mi=lib->named_metadata_begin(), me=lib->named_metadata_end();
        mi != me; mi++) {
-      const NamedMDNode &NMD=*mi;
-      DB_PRINT(" %s:\n", NMD.getName().data());
-      NamedMDNode *NewNMD=krn->getOrInsertNamedMetadata(NMD.getName());
-      for (unsigned i=0, e=NMD.getNumOperands(); i != e; ++i)
-        NewNMD->addOperand(MapMetadata(NMD.getOperand(i), vvm));
+    const NamedMDNode &NMD = *mi;
+    // This causes problems with NVidia, and is regenerated by pocl-ptx-gen
+    // anyway.
+    if (NMD.getName() == StringRef("nvvm.annotations"))
+      continue;
+    DB_PRINT(" %s:\n", NMD.getName().data());
+    if (program->getNamedMetadata(NMD.getName())) {
+      // Let's not overwrite existing metadata such as llvm.module.flags and
+      // opencl.ocl.version.
+      continue;
+    }
+    NamedMDNode *NewNMD = program->getOrInsertNamedMetadata(NMD.getName());
+    for (unsigned i = 0, e = NMD.getNumOperands(); i != e; ++i)
+      NewNMD->addOperand(MapMetadata(NMD.getOperand(i), vvm));
   }
+}
+
+int link(llvm::Module *program, const llvm::Module *lib, std::string &log) {
+  assert(program);
+  assert(lib);
+  ValueToValueMapTy vvm;
+  std::list<llvm::StringRef> declared;
+
+  // Include auxiliary functions required by the device at hand.
+  if (const char **DevAuxFuncs = currentPoclDevice->device_aux_functions) {
+    const char **Func = DevAuxFuncs;
+    while (*Func != nullptr) {
+      declared.push_back(*Func++);
+    }
+  }
+
+  llvm::Module::iterator fi, fe;
+
+  // Find and fix opencl.imageX_t arguments
+  for (fi = program->begin(), fe = program->end(); fi != fe; fi++) {
+    llvm::Function *f = &*fi;
+    if (f->isDeclaration())
+      continue;
+    // need to restart iteration if we replace a function
+    if (CloneFuncFixOpenCLImageT(program, f) != f) {
+      fi = program->begin();
+    }
+  }
+
+  // Inspect the program, find undefined functions
+  for (fi = program->begin(), fe = program->end(); fi != fe; fi++) {
+    if ((*fi).isDeclaration()) {
+      DB_PRINT("%s is not defined\n", fi->getName().data());
+      declared.push_back(fi->getName());
+      continue;
+    }
+
+    // Find all functions the program source calls
+    // TODO: is there no direct way?
+    find_called_functions(&*fi, declared);
+  }
+  declared.sort(stringref_cmp);
+  declared.unique(stringref_equal);
+
+  // some global variables can have external linkage. Set it to private
+  // otherwise these end up in ELF relocation tables and cause link
+  // failures when linking with -fPIC/PIE
+  llvm::Module::global_iterator gi1, ge1;
+  for (gi1 = program->global_begin(), ge1 = program->global_end(); gi1 != ge1;
+       gi1++) {
+    GlobalValue::LinkageTypes linkage = gi1->getLinkage();
+    if (linkage == GlobalValue::LinkageTypes::ExternalLinkage)
+      gi1->setLinkage(GlobalValue::LinkageTypes::PrivateLinkage);
+  }
+
+  // Copy all the globals from lib to program.
+  // It probably is faster to just copy them all, than to inspect
+  // both program and lib to find which actually are used.
+  DB_PRINT("cloning the global variables:\n");
+  llvm::Module::const_global_iterator gi,ge;
+  for (gi=lib->global_begin(), ge=lib->global_end(); gi != ge; gi++) {
+    DB_PRINT(" %s\n", gi->getName().data());
+    GlobalVariable *GV = new GlobalVariable(
+      *program, gi->getType()->getElementType(), gi->isConstant(),
+      gi->getLinkage(), (Constant*)0, gi->getName(), (GlobalVariable*)0,
+      gi->getThreadLocalMode(), gi->getType()->getAddressSpace());
+    GV->copyAttributesFrom(&*gi);
+    vvm[&*gi]=GV;
+  }
+
+  // For each undefined function in program,
+  // clone it from the lib to the program module,
+  // if found in lib
+  bool found_all_undefined = true;
+
+  // this one is a handled with a special pocl LLVM pass
+  StringRef pocl_sampler_handler("__translate_sampler_initializer");
+  // ignore undefined llvm intrinsics
+  StringRef llvm_intrins("llvm.");
+  std::list<llvm::StringRef>::iterator di,de;
+  for (di = declared.begin(), de = declared.end();
+       di != de; di++) {
+      llvm::StringRef r = *di;
+      if (copy_func_callgraph(r, lib, program, vvm)) {
+        Function *f = program->getFunction(r);
+        if ((f == NULL) ||
+            (f->isDeclaration() &&
+             // A target might want to expose the C99 printf in case not supporting
+             // the OpenCL 1.2 printf.
+             !f->getName().equals("printf") &&
+             !f->getName().equals(pocl_sampler_handler) &&
+             !f->getName().startswith(llvm_intrins))
+           ) {
+          log.append("Cannot find symbol ");
+          log.append(r.str());
+          log.append(" in kernel library\n");
+          found_all_undefined = false;
+        }
+      }
+  }
+  if (!found_all_undefined)
+    return 1;
+
+  shared_copy(program, lib, log, vvm);
+
+  return 0;
+}
+
+int copyKernelFromBitcode(const char* name, llvm::Module *parallel_bc,
+                          const llvm::Module *program) {
+  ValueToValueMapTy vvm;
+
+  // Copy all the globals from lib to program.
+  // It probably is faster to just copy them all, than to inspect
+  // both program and lib to find which actually are used.
+  DB_PRINT("cloning the global variables:\n");
+  llvm::Module::const_global_iterator gi,ge;
+  for (gi=program->global_begin(), ge=program->global_end(); gi != ge; gi++) {
+    DB_PRINT(" %s\n", gi->getName().data());
+    GlobalVariable *GV = new GlobalVariable(
+      *parallel_bc, gi->getType()->getElementType(), gi->isConstant(),
+      gi->getLinkage(), (Constant*)0, gi->getName(), (GlobalVariable*)0,
+      gi->getThreadLocalMode(), gi->getType()->getAddressSpace());
+    GV->copyAttributesFrom(&*gi);
+    vvm[&*gi]=GV;
+  }
+
+  const StringRef kernel_name(name);
+  copy_func_callgraph(kernel_name, program, parallel_bc, vvm);
+
+  if (const char **DevAuxFuncs = currentPoclDevice->device_aux_functions) {
+    const char **Func = DevAuxFuncs;
+    while (*Func != nullptr) {
+      copy_func_callgraph(*Func++, program, parallel_bc, vvm);
+    }
+  }
+
+  std::string log;
+  shared_copy(parallel_bc, program, log, vvm);
+
+  return 0;
 }
 
 /* vim: set expandtab ts=4 : */

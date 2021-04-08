@@ -37,11 +37,7 @@
 #include "ParallelRegion.h"
 
 namespace llvm {
-#ifdef LLVM_OLDER_THAN_3_9
-  struct PostDominatorTree;
-#else
   struct PostDominatorTreeWrapperPass;
-#endif
 }
 
 namespace pocl {
@@ -52,7 +48,8 @@ namespace pocl {
   public:
     static char ID;
 
-  WorkitemLoops() : pocl::WorkitemHandler(ID) {}
+  WorkitemLoops() : pocl::WorkitemHandler(ID),
+                    original_parallel_regions(nullptr) {}
 
     virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const;
     virtual bool runOnFunction(llvm::Function &F);
@@ -65,17 +62,9 @@ namespace pocl {
     typedef std::map<std::string, llvm::Instruction*> StrInstructionMap;
 
     llvm::DominatorTree *DT;
-#ifdef LLVM_OLDER_THAN_3_7
-    llvm::LoopInfo *LI;
-#else
     llvm::LoopInfoWrapperPass *LI;
-#endif
 
-#ifdef LLVM_OLDER_THAN_3_9
-    llvm::PostDominatorTree *PDT;
-#else
     llvm::PostDominatorTreeWrapperPass *PDT;
-#endif
 
     llvm::DominatorTreeWrapperPass *DTP;
 
@@ -87,16 +76,19 @@ namespace pocl {
 
     void FixMultiRegionVariables(ParallelRegion *region);
     void AddContextSaveRestore(llvm::Instruction *instruction);
+    void releaseParallelRegions();
 
     llvm::Value *GetLinearWiIndex(llvm::IRBuilder<> &builder, llvm::Module *M,
                                   ParallelRegion *region);
     llvm::Instruction *AddContextSave(llvm::Instruction *instruction,
                                       llvm::Instruction *alloca);
-    llvm::Instruction *AddContextRestore
-        (llvm::Value *val, llvm::Instruction *alloca, 
-         llvm::Instruction *before=NULL, 
-         bool isAlloca=false);
-    llvm::Instruction *GetContextArray(llvm::Instruction *val);
+    llvm::Instruction *AddContextRestore(llvm::Value *val,
+                                         llvm::Instruction *alloca,
+                                         bool PoclWrapperStructAdded,
+                                         llvm::Instruction *before = NULL,
+                                         bool isAlloca = false);
+    llvm::Instruction *GetContextArray(llvm::Instruction *val,
+                                       bool &PoclWrapperStructAdded);
 
     std::pair<llvm::BasicBlock *, llvm::BasicBlock *>
     CreateLoopAround
@@ -112,6 +104,11 @@ namespace pocl {
     ParallelRegion* RegionOfBlock(llvm::BasicBlock *bb);
 
     bool ShouldNotBeContextSaved(llvm::Instruction *instr);
+
+    llvm::Type *RecursivelyAlignArrayType(llvm::Type *ArrayType,
+                                          llvm::Type *ElementType,
+                                          size_t Alignment,
+                                          const llvm::DataLayout &Layout);
 
     std::map<llvm::Instruction*, unsigned> tempInstructionIds;
     size_t tempInstructionIndex;

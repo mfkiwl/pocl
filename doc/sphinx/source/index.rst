@@ -13,14 +13,11 @@ Contents:
 
    install
    using
-   env_variables
+   features
+   debug
    faq
    development
-   releasing
    design
-   features
-   hsa
-   cuda
 
 Back to `pocl home page <http://pocl.sourceforge.net>`_.
 

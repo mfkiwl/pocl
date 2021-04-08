@@ -70,8 +70,6 @@ main(void)
     cl::Program::Sources sources({kernelSourceCode});
     cl::Program program(context, sources);
 
-    cl_device_id dev_id = devices.at(0)();
-
     for (int i = 0; i < 3; ++i)
       A[i] = 0;
 
@@ -99,7 +97,7 @@ main(void)
 
     // We don't actually care about the result.
   }
-  catch (cl::Error err) {
+  catch (cl::Error &err) {
     std::cerr
       << "ERROR: "
       << err.what()

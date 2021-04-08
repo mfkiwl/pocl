@@ -66,14 +66,8 @@ CanonicalizeBarriers::runOnFunction(Function &F)
 
   BasicBlock *entry = &F.getEntryBlock();
   if (!Barrier::hasOnlyBarrier(entry)) {
-#ifdef LLVM_OLDER_THAN_3_7
-    BasicBlock *effective_entry = SplitBlock(entry, 
-                                             &(entry->front()),
-                                             this);
-#else
     BasicBlock *effective_entry = SplitBlock(entry, 
                                              &(entry->front()));
-#endif
 
     effective_entry->takeName(entry);
     entry->setName("entry.barrier");
@@ -81,10 +75,11 @@ CanonicalizeBarriers::runOnFunction(Function &F)
   }
 
   for (Function::iterator i = F.begin(), e = F.end(); i != e; ++i) {
-    BasicBlock *b = &*i;
-    TerminatorInst *t = b->getTerminator();
 
-    const bool isExitNode = 
+    BasicBlock *b = &*i;
+    auto t = b->getTerminator();
+
+    const bool isExitNode =
       (t->getNumSuccessors() == 0) && (!Barrier::hasOnlyBarrier(b));
 
     // The function exits should have barriers.
@@ -92,25 +87,17 @@ CanonicalizeBarriers::runOnFunction(Function &F)
       /* In case the bb is already terminated with a barrier,
          split before the barrier so we don't create an empty
          parallel region.
-         
-         This is because the assumptions of the other passes in the 
+
+         This is because the assumptions of the other passes in the
          compilation that are 
          a) exit node is a barrier block 
          b) there are no empty parallel regions (which would be formed 
          between the explicit barrier and the added one). */
       BasicBlock *exit; 
       if (Barrier::endsWithBarrier(b))
-#ifdef LLVM_OLDER_THAN_3_7
-        exit = SplitBlock(b, t->getPrevNode(), this);
-#else
         exit = SplitBlock(b, t->getPrevNode());
-#endif
       else
-#ifdef LLVM_OLDER_THAN_3_7
-        exit = SplitBlock(b, t, this);
-#else
         exit = SplitBlock(b, t);
-#endif
       exit->setName("exit.barrier");
       Barrier::Create(t);
     }
@@ -151,7 +138,7 @@ CanonicalizeBarriers::ProcessFunction(Function &F) {
 
     // Split post barrier first cause it does not make the barrier
     // to belong to another basic block.
-    TerminatorInst  *t = b->getTerminator();
+    Instruction *t = b->getTerminator();
     // if ((t->getNumSuccessors() > 1) ||
     //     (t->getPrevNode() != *i)) {
     // Change: barriers with several successors are all right
@@ -162,18 +149,14 @@ CanonicalizeBarriers::ProcessFunction(Function &F) {
       t->getPrevNode() != *i;
 
     if (HAS_NON_BRANCH_INSTRUCTIONS_AFTER_BARRIER) {
-#ifdef LLVM_OLDER_THAN_3_7
-      BasicBlock *new_b = SplitBlock(b, (*i)->getNextNode(), this);
-#else
       BasicBlock *new_b = SplitBlock(b, (*i)->getNextNode());
-#endif
       new_b->setName(b->getName() + ".postbarrier");
       changed = true;
     }
 
     BasicBlock *predecessor = b->getSinglePredecessor();
     if (predecessor != NULL) {
-      TerminatorInst *pt = predecessor->getTerminator();
+      auto pt = predecessor->getTerminator();
       if ((pt->getNumSuccessors() == 1) &&
           (&b->front() == (*i))) {
         // Barrier is at the beginning of the BB,
@@ -191,26 +174,22 @@ CanonicalizeBarriers::ProcessFunction(Function &F) {
     // (allow multiple predecessors, eases loop handling).
     // if (&b->front() == (*i))
     //   continue;
-#ifdef LLVM_OLDER_THAN_3_7
-    BasicBlock *new_b = SplitBlock(b, *i, this);
-#else
     BasicBlock *new_b = SplitBlock(b, *i);
-#endif
     new_b->takeName(b);
     b->setName(new_b->getName() + ".prebarrier");
     changed = true;
   }
 
   // Prune empty regions. That is, if there are two successive
-  // pure barrier blocks without side branches, remove the other one. 
-  bool emptyRegionDeleted = false;  
+  // pure barrier blocks without side branches, remove the other one.
+  bool emptyRegionDeleted = false;
   do {
     emptyRegionDeleted = false;
     for (Function::iterator i = F.begin(), e = F.end();
          i != e; ++i) {
         BasicBlock *b = &*i;
-        llvm::TerminatorInst *t = b->getTerminator();
-        if (!Barrier::endsWithBarrier(b) || t->getNumSuccessors() != 1) 
+        auto t = b->getTerminator();
+        if (!Barrier::endsWithBarrier(b) || t->getNumSuccessors() != 1)
           continue;
 
         BasicBlock *successor = t->getSuccessor(0);

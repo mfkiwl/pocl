@@ -96,15 +96,12 @@ main(void)
             BUFFER_SIZE * sizeof(float), 
             (void *) &A[0]);
 
-        cl::Buffer localBuffer = cl::Buffer(
-            context, 0, BUFFER_SIZE * sizeof(int), NULL);
-
         // Create kernel object
         cl::Kernel kernel(program, "test_kernel");
 
         // Set kernel args
         kernel.setArg(0, aBuffer);
-        kernel.setArg(1, localBuffer);
+        kernel.setArg(1, (BUFFER_SIZE * sizeof(int)), NULL);
         kernel.setArg(2, scalar);
 
         // Create command queue
@@ -145,7 +142,7 @@ main(void)
         // or release any objects as this all happens implicitly with
         // the C++ Wrapper API.
     } 
-    catch (cl::Error err) {
+    catch (cl::Error &err) {
          std::cerr
              << "ERROR: "
              << err.what()

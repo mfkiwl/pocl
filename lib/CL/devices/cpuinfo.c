@@ -41,6 +41,9 @@ static const char* cpuinfo = "/proc/cpuinfo";
 //Linux' cpufrec interface
 static const char* cpufreq_file="/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq";
 
+// Vendor of PCI root bus
+static const char *pci_bus_root_vendor_file = "/sys/bus/pci/devices/0000:00:00.0/vendor";
+
 /* Strings to parse in /proc/cpuinfo. Else branch is for x86, x86_64 */
 #if   defined  __powerpc__
  #define FREQSTRING "clock"
@@ -48,9 +51,9 @@ static const char* cpufreq_file="/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_ma
  #define DEFAULTVENDOR "AIM" // Apple-IBM-Motorola
  #define DEFAULTVENDORID 0x1014 // IBM
  #define VENDORSTRING "vendor"
-#elif defined __arm__
+#elif defined __arm__ || __aarch64__
  #define FREQSTRING " "
- #define MODELSTRING "Processor"
+ #define MODELSTRING "CPU part"
  #define DEFAULTVENDOR "ARM"
  #define DEFAULTVENDORID 0x13b5 // ARM
  #define VENDORSTRING "CPU implementer"
@@ -233,34 +236,63 @@ pocl_cpuinfo_detect_compute_unit_count()
   return -1;  
 }
 
-#ifdef POCL_ANDROID
-
-#define SYSFS_CPU_NUM_CORES_NODE    "/sys/devices/system/cpu/possible"
-
-int
-pocl_sysfs_detect_compute_unit_count()
+#if __arm__ || __aarch64__
+enum
 {
-  int cores = -1;
+  JEP106_ARM    = 0x41,
+  JEP106_BRDCOM = 0x42,
+  JEP106_CAVIUM = 0x43,
+  JEP106_APM    = 0x50,
+  JEP106_QCOM   = 0x51
+};
 
-  FILE *fp = fopen(SYSFS_CPU_NUM_CORES_NODE, "r");
-
-  // cpu/possible will of format
-  // 0        : for single-core devices
-  // 0-(n-1)  : for n-core cpus
-  if (fp)
-    {
-      cores = fgetc(fp) - '0';
-      if (!feof(fp))         // If more than 1 cores
-        {
-          fgetc(fp);          // Ignore '-'
-          fscanf(fp, "%d", &cores);
-        }
-      fclose(fp);
-      cores ++;             // always printed as (n-1)
-    }
-
-  return cores;
+static const struct
+{
+  /* JEDEC JEP106 code; /proc/cpuinfo, field "CPU implementer" */
+  unsigned id;
+  /* PCI vendor ID, to fill the device->vendor_id field */
+  unsigned pci_vendor_id;
+  char const *name;
 }
+vendor_list[] =
+{
+  { JEP106_ARM,    0x13b5, "ARM" },
+  { JEP106_BRDCOM, 0x14e4, "Broadcom" },
+  { JEP106_CAVIUM, 0x177d, "Cavium" },
+  { JEP106_APM,    0x10e8, "Applied Micro" },
+  { JEP106_QCOM,   0x5143, "Qualcomm" }
+};
+
+typedef struct
+{
+  unsigned id; /* part code; /proc/cpuinfo, field "CPU part" */
+  char const *name;
+} part_tuple_t;
+
+static const part_tuple_t part_list_arm[] =
+{
+  { 0xd0a, "cortex-a75" },
+  { 0xd09, "cortex-a73" },
+  { 0xd08, "cortex-a72" },
+  { 0xd07, "cortex-a57" },
+  { 0xd05, "cortex-a55" },
+  { 0xd04, "cortex-a35" },
+  { 0xd03, "cortex-a53" },
+  { 0xd01, "cortex-a32" },
+  { 0xc0f, "cortex-a15" },
+  { 0xc0e, "cortex-a17" },
+  { 0xc0d, "cortex-a12" }, /* Rockchip RK3288 */
+  { 0xc0c, "cortex-a12" },
+  { 0xc09, "cortex-a9" },
+  { 0xc08, "cortex-a8" },
+  { 0xc07, "cortex-a7" },
+  { 0xc05, "cortex-a5" }
+};
+
+static const part_tuple_t part_list_apm[] =
+{
+  { 0x0, "x-gene-1" }
+};
 #endif
 
 static void
@@ -278,14 +310,20 @@ pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
   /* read contents of /proc/cpuinfo */
   if (access (cpuinfo, R_OK) != 0)
     return;
+
   FILE *f = fopen (cpuinfo, "r");
   char contents[MAX_CPUINFO_SIZE];
   int num_read = fread (contents, 1, MAX_CPUINFO_SIZE - 1, f);            
   fclose(f);
   contents[num_read]='\0';
 
-  char *start, *end;
+  char const *start, *end;
   /* find the vendor_id string an put */
+
+#if __arm__ || __aarch64__
+  unsigned vendor_id = -1;
+  size_t i;
+#endif
 #ifdef VENDORSTRING
   do {
     start = strstr(contents, VENDORSTRING"\t: ");
@@ -295,6 +333,23 @@ pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
     end = strchr(start, '\n');
     if (!end)
       break;
+
+#if __arm__ || __aarch64__
+    if (1 == sscanf (start, "%x", &vendor_id))
+      {
+        for (i = 0; i < sizeof (vendor_list) / sizeof (vendor_list[0]); ++i)
+          {
+            if (vendor_id == vendor_list[i].id)
+              {
+                device->vendor_id = vendor_list[i].pci_vendor_id;
+                start = vendor_list[i].name;
+                end = start + strlen (vendor_list[i].name);
+                break;
+              }
+          }
+      }
+#endif
+
     char *_vendor = malloc(end-start + 1);
     if (!_vendor)
       break;
@@ -313,29 +368,82 @@ pocl_cpuinfo_get_cpu_name_and_vendor(cl_device_id device)
   if (end == NULL)
     return;
 
+#if __arm__ || __aarch64__
+  unsigned part_id;
+  if (1 == sscanf (start, "%x", &part_id))
+    {
+      part_tuple_t const *part_list = NULL;
+      size_t part_count = 0;
+
+      switch (vendor_id)
+      {
+        case JEP106_ARM:
+          part_list = part_list_arm;
+          part_count = sizeof (part_list_arm) / sizeof (part_list_arm[0]);
+          break;
+        case JEP106_APM:
+          part_list = part_list_apm;
+          part_count = sizeof (part_list_apm) / sizeof (part_list_apm[0]);
+          break;
+      }
+
+      for (i = 0; i < part_count; ++i)
+        {
+          if (part_id == part_list[i].id)
+            {
+              start = part_list[i].name;
+              end = start + strlen (part_list[i].name);
+              break;
+            }
+        }
+    }
+#endif
+
   /* create the descriptive long_name for device */
   int len = strlen (device->short_name) + (end-start) + 2;
   char *new_name = (char*)malloc (len);
   snprintf (new_name, len, "%s-%s", device->short_name, start);
   device->long_name = new_name;
 
+  /* If the vendor_id field is still empty, we should get the PCI ID associated
+   * with the CPU vendor (if there is one), to be ready for the (currently
+   * provisional) OpenCL 3.0 specification that has finally clarified the
+   * meaning of this field. To do this, we look at the vendor advertised by the
+   * PCI root device. At least for Intel and AMD, this does indeed gives us the
+   * expected value. (The alternative would be a look-up table for the vendor
+   * string to the associated PCI ID.)
+   */
+  if (!device->vendor_id)
+    {
+      f = fopen (pci_bus_root_vendor_file, "r");
+      num_read = fscanf (f, "%x", &device->vendor_id);
+      fclose (f);
+      /* no error checking, if it failed we just won't have the info */
+    }
 }
+
+/*
+ * Expects:
+ *   short name
+ *
+ * Sets up:
+ *   vendor_id
+ *   vendor (name)
+ *   long name
+ *
+ *   max compute units IF NOT SET ALREADY
+ *   max clock freq
+ */
 
 void
 pocl_cpuinfo_detect_device_info(cl_device_id device) 
 {
   int res;
-#ifdef POCL_ANDROID
-  /* sysfs node seems more suitable for android kernels
-     override the value provided by hwloc
-   */
-  device->max_compute_units = pocl_sysfs_detect_compute_unit_count();
-#else
+
   if (device->max_compute_units == 0) {
     res = pocl_cpuinfo_detect_compute_unit_count();
     device->max_compute_units = (res > 0) ? (cl_uint)res : 0;
   }
-#endif
 
   res = pocl_cpuinfo_detect_max_clock_frequency();
   device->max_clock_frequency = (res > 0) ? (cl_uint)res : 0;

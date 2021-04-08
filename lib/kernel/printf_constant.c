@@ -8,10 +8,10 @@
    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
    copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -49,14 +49,16 @@
 
 /* AS 0 is required for the prototypes, otherwise they get assigned
  * the generic AS (#4) */
+
 #define OCL_C_AS __attribute__((address_space(0)))
-int vprintf(OCL_C_AS const char *, __builtin_va_list);
-int fflush(OCL_C_AS void *stream);
+
+int vprintf(const char *, __builtin_va_list);
+int fflush(void *stream);
 
 #undef printf
 #define MAX_FORMAT_STR_SIZE 2048
 int
-__cl_printf(__attribute__((address_space(POCL_ADDRESS_SPACE_CONSTANT)))
+printf(__attribute__((address_space(POCL_ADDRESS_SPACE_CONSTANT)))
            char* restrict fmt, ...)
 {
   /* http://www.pagetable.com/?p=298 */

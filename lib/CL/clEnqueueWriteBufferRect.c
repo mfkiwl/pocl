@@ -50,6 +50,8 @@ POname(clEnqueueWriteBufferRect)(cl_command_queue command_queue,
 
   POCL_RETURN_ERROR_COND((buffer == NULL), CL_INVALID_MEM_OBJECT);
 
+  POCL_RETURN_ON_SUB_MISALIGN (buffer, command_queue);
+
   POCL_RETURN_ERROR_ON((buffer->type != CL_MEM_OBJECT_BUFFER),
       CL_INVALID_MEM_OBJECT, "buffer is not a CL_MEM_OBJECT_BUFFER\n");
 
@@ -81,27 +83,38 @@ POname(clEnqueueWriteBufferRect)(cl_command_queue command_queue,
 
   POCL_CHECK_DEV_IN_CMDQ;
 
-  POname(clRetainMemObject) (buffer);
+  size_t dst_offset = 0;
+  POCL_CONVERT_SUBBUFFER_OFFSET (buffer, dst_offset);
+
+  POCL_RETURN_ERROR_ON((buffer->size > command_queue->device->max_mem_alloc_size),
+                        CL_OUT_OF_RESOURCES,
+                        "buffer is larger than device's MAX_MEM_ALLOC_SIZE\n");
 
   pocl_create_command (&cmd, command_queue, CL_COMMAND_WRITE_BUFFER_RECT,
                        event, num_events_in_wait_list, event_wait_list, 1,
                        &buffer);
 
-  cmd->command.write_image.device_ptr =
-    buffer->device_ptrs[device->dev_id].mem_ptr;
-  cmd->command.write_image.host_ptr = ptr;
-  memcpy (&cmd->command.write_image.origin,
-          buffer_origin, sizeof (size_t) * 3);
-  memcpy (&cmd->command.write_image.h_origin,
-          host_origin, sizeof (size_t) * 3);
-  memcpy (&cmd->command.write_image.region, region, sizeof (size_t) * 3);
-  cmd->command.write_image.h_rowpitch = host_row_pitch;
-  cmd->command.write_image.h_slicepitch = host_slice_pitch;
-  cmd->command.write_image.b_rowpitch = buffer_row_pitch;
-  cmd->command.write_image.b_slicepitch = buffer_slice_pitch;
-  cmd->command.write_image.buffer = buffer;
+  cmd->command.write_rect.dst_mem_id = &buffer->device_ptrs[device->dev_id];
+  cmd->command.write_rect.src_host_ptr = ptr;
 
-  buffer->owning_device = command_queue->device;
+  cmd->command.write_rect.host_origin[0] = host_origin[0];
+  cmd->command.write_rect.host_origin[1] = host_origin[1];
+  cmd->command.write_rect.host_origin[2] = host_origin[2];
+  cmd->command.write_rect.buffer_origin[0] = dst_offset + buffer_origin[0];
+  cmd->command.write_rect.buffer_origin[1] = buffer_origin[1];
+  cmd->command.write_rect.buffer_origin[2] = buffer_origin[2];
+  cmd->command.write_rect.region[0] = region[0];
+  cmd->command.write_rect.region[1] = region[1];
+  cmd->command.write_rect.region[2] = region[2];
+
+  cmd->command.write_rect.host_row_pitch = host_row_pitch;
+  cmd->command.write_rect.host_slice_pitch = host_slice_pitch;
+  cmd->command.write_rect.buffer_row_pitch = buffer_row_pitch;
+  cmd->command.write_rect.buffer_slice_pitch = buffer_slice_pitch;
+
+  POname (clRetainMemObject) (buffer);
+  buffer->owning_device = device;
+
   pocl_command_enqueue (command_queue, cmd);
 
   if (blocking_write)

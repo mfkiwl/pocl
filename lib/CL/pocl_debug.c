@@ -11,25 +11,22 @@
 #ifdef POCL_DEBUG_MESSAGES
 
 uint64_t pocl_debug_messages_filter; /* Bitfield */
-int stderr_is_a_tty;
+int pocl_stderr_is_a_tty;
 
 static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
 
   #if !defined(_MSC_VER) && !defined(__MINGW32__)
 
-    /* The same as fprintf(stderr,..), except it's protected by mutex
-     * helps to keep the debug output correct when >1 thread
-     * is doing fprintf() */
-    int
-    pocl_fprintf_err (const char* format, ...)
+    void
+    pocl_debug_output_lock ()
     {
-      va_list args;
-      va_start (args, format);
       pthread_mutex_lock (&console_mutex);
-      int res = vfprintf (stderr, format, args);
+    }
+
+    void
+    pocl_debug_output_unlock ()
+    {
       pthread_mutex_unlock (&console_mutex);
-      va_end (args);
-      return res;
     }
 
     void
@@ -39,7 +36,9 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
       if (strlen (debug) == 1)
         {
           if (debug[0] == '1')
-            pocl_debug_messages_filter = POCL_DEBUG_FLAG_GENERAL;
+            pocl_debug_messages_filter = POCL_DEBUG_FLAG_GENERAL
+                                         | POCL_DEBUG_FLAG_WARNING
+                                         | POCL_DEBUG_FLAG_ERROR;
           return;
         }
       /* else parse */
@@ -63,6 +62,8 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
           pocl_debug_messages_filter |= POCL_DEBUG_FLAG_LOCKING;
         else if (strncmp (ptr, "cuda", 4) == 0)
           pocl_debug_messages_filter |= POCL_DEBUG_FLAG_CUDA;
+        else if (strncmp (ptr, "warn", 4) == 0)
+          pocl_debug_messages_filter |= (POCL_DEBUG_FLAG_WARNING | POCL_DEBUG_FLAG_ERROR);
         else if (strncmp (ptr, "hsa", 3) == 0)
           pocl_debug_messages_filter |= POCL_DEBUG_FLAG_HSA;
         else if (strncmp (ptr, "tce", 3) == 0)
@@ -73,6 +74,8 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
           pocl_debug_messages_filter |= POCL_DEBUG_FLAG_TIMING;
         else if (strncmp (ptr, "all", 3) == 0)
           pocl_debug_messages_filter |= POCL_DEBUG_FLAG_ALL;
+        else if (strncmp (ptr, "err", 3) == 0)
+          pocl_debug_messages_filter |= POCL_DEBUG_FLAG_ERROR;
         else
           POCL_MSG_WARN ("Unknown token in POCL_DEBUG env var: %s", ptr);
 
@@ -80,8 +83,9 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
       }
 
       free (tokenize);
-      pocl_fprintf_err ("** Final POCL_DEBUG flags: %lX \n",
-                        pocl_debug_messages_filter);
+      if (pocl_debug_messages_filter)
+        fprintf (stderr, "** Final POCL_DEBUG flags: %" PRIX64 " \n",
+                 pocl_debug_messages_filter);
     }
 
     void
@@ -96,15 +100,15 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
         const char *formatstring;
 
         if (filter_type == POCL_FILTER_TYPE_ERR)
-          filter_type_str = (stderr_is_a_tty ? POCL_COLOR_RED : " *** ERROR *** ");
+          filter_type_str = (pocl_stderr_is_a_tty ? POCL_COLOR_RED : " *** ERROR *** ");
         else if (filter_type == POCL_FILTER_TYPE_WARN)
-          filter_type_str = (stderr_is_a_tty ? POCL_COLOR_YELLOW : " *** WARNING *** ");
+          filter_type_str = (pocl_stderr_is_a_tty ? POCL_COLOR_YELLOW : " *** WARNING *** ");
         else if (filter_type == POCL_FILTER_TYPE_INFO)
-          filter_type_str = (stderr_is_a_tty ? POCL_COLOR_GREEN : " *** INFO *** ");
+          filter_type_str = (pocl_stderr_is_a_tty ? POCL_COLOR_GREEN : " *** INFO *** ");
         else
-          filter_type_str = (stderr_is_a_tty ? POCL_COLOR_GREEN : " *** UNKNOWN *** ");
+          filter_type_str = (pocl_stderr_is_a_tty ? POCL_COLOR_GREEN : " *** UNKNOWN *** ");
 
-        if (stderr_is_a_tty)
+        if (pocl_stderr_is_a_tty)
           formatstring = POCL_COLOR_BLUE
               "[%04i-%02i-%02i %02i:%02i:%02i.%09li]"
               POCL_COLOR_RESET "POCL: in fn %s "
@@ -113,8 +117,8 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
           formatstring = "[%04i-%02i-%02i %02i:%02i:%02i.%09i] "
               "POCL: in fn %s at line %u:\n %s | %9s | ";
 
-        pocl_fprintf_err (formatstring, year, mon, day, hour, min, sec,
-                          nanosec, func, line, filter_type_str, filter);
+        fprintf (stderr, formatstring, year, mon, day, hour, min, sec,
+                 nanosec, func, line, filter_type_str, filter);
     }
 
     void pocl_debug_measure_start(uint64_t *start) {
@@ -124,9 +128,11 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
     #define PRINT_DURATION(func, line, ...)                                   \
       do                                                                      \
         {                                                                     \
+          pocl_debug_output_lock ();                                          \
           pocl_debug_print_header (func, line,                                \
                                    "TIMING", POCL_FILTER_TYPE_INFO);          \
-          pocl_fprintf_err (__VA_ARGS__);                                     \
+          fprintf (stderr, __VA_ARGS__);                                      \
+          pocl_debug_output_unlock ();                                        \
         }                                                                     \
       while (0)
 
@@ -137,7 +143,7 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
       if (!(pocl_debug_messages_filter & POCL_DEBUG_FLAG_TIMING))
         return;
       const char* formatstring;
-      if (stderr_is_a_tty)
+      if (pocl_stderr_is_a_tty)
         formatstring = "      >>>  " POCL_COLOR_MAGENTA "     %3" PRIu64
                        ".%03" PRIu64 " " POCL_COLOR_RESET " %s    %s\n";
       else
@@ -151,7 +157,7 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
       if ((sec == 0) && (nsec < 1000))
         {
           b = nsec % 1000;
-          if (stderr_is_a_tty)
+          if (pocl_stderr_is_a_tty)
             formatstring = "      >>>      " POCL_COLOR_MAGENTA
                     "     %3" PRIu64 " " POCL_COLOR_RESET " ns    %s\n";
           else
@@ -171,7 +177,16 @@ static pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
           PRINT_DURATION (func, line, formatstring, a, b, "ms", msg);
         }
       else
+        {
+          if (pocl_stderr_is_a_tty)
+            formatstring = "      >>>  " POCL_COLOR_MAGENTA "     %3" PRIu64
+                           ".%09" PRIu64 " " POCL_COLOR_RESET " %s    %s\n";
+          else
+            formatstring = "      >>>       %3" PRIu64 ".%09"
+                           PRIu64 "  %s    %s\n";
+
           PRINT_DURATION (func, line, formatstring, sec, nsec, "s", msg);
+        }
 
     }
 

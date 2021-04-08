@@ -43,7 +43,6 @@ CL_API_SUFFIX__VERSION_1_0
   unsigned i;
   _cl_command_node *cmd = NULL;
   int errcode;
-  cl_mem buffers[2] = {src_buffer, dst_buffer};
 
   POCL_RETURN_ERROR_COND((command_queue == NULL), CL_INVALID_COMMAND_QUEUE);
 
@@ -55,6 +54,22 @@ CL_API_SUFFIX__VERSION_1_0
       CL_INVALID_MEM_OBJECT, "src_buffer is not a CL_MEM_OBJECT_BUFFER\n");
   POCL_RETURN_ERROR_ON((dst_buffer->type != CL_MEM_OBJECT_BUFFER),
       CL_INVALID_MEM_OBJECT, "dst_buffer is not a CL_MEM_OBJECT_BUFFER\n");
+
+  POCL_RETURN_ON_SUB_MISALIGN (src_buffer, command_queue);
+
+  POCL_RETURN_ON_SUB_MISALIGN (dst_buffer, command_queue);
+
+  POCL_CONVERT_SUBBUFFER_OFFSET (src_buffer, src_offset);
+
+  POCL_CONVERT_SUBBUFFER_OFFSET (dst_buffer, dst_offset);
+
+  POCL_RETURN_ERROR_ON((src_buffer->size > command_queue->device->max_mem_alloc_size),
+                        CL_OUT_OF_RESOURCES,
+                        "src is larger than device's MAX_MEM_ALLOC_SIZE\n");
+
+  POCL_RETURN_ERROR_ON((dst_buffer->size > command_queue->device->max_mem_alloc_size),
+                        CL_OUT_OF_RESOURCES,
+                        "src is larger than device's MAX_MEM_ALLOC_SIZE\n");
 
   POCL_RETURN_ERROR_ON(((command_queue->context != src_buffer->context) ||
       (command_queue->context != dst_buffer->context)), CL_INVALID_CONTEXT,
@@ -75,37 +90,24 @@ CL_API_SUFFIX__VERSION_1_0
 
   POCL_CHECK_DEV_IN_CMDQ;
 
+  cl_mem buffers[2] = { src_buffer, dst_buffer };
+
   errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_COPY_BUFFER, 
                                  event, num_events_in_wait_list, 
                                  event_wait_list, 2, buffers);
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  cmd->command.copy.src_buffer = src_buffer;
-  cmd->command.copy.src_offset = src_offset;
-  cmd->command.copy.src_dev = src_buffer->owning_device;
-
-  cmd->command.copy.dst_buffer = dst_buffer;
-  cmd->command.copy.dst_offset = dst_offset;
-  if (dst_buffer->owning_device)
-    cmd->command.copy.dst_dev = dst_buffer->owning_device;
-  else
-    cmd->command.copy.dst_dev = device;
-
-  cmd->command.copy.data = device->data;
-
-  cmd->command.copy.src_ptr = 
-    (char*)src_buffer->device_ptrs[device->dev_id].mem_ptr;
+  cmd->command.copy.src_mem_id = &src_buffer->device_ptrs[device->dev_id];
   cmd->command.copy.src_offset = src_offset;
 
-  cmd->command.copy.dst_ptr = 
-    (char*)dst_buffer->device_ptrs[device->dev_id].mem_ptr;
+  cmd->command.copy.dst_mem_id = &dst_buffer->device_ptrs[device->dev_id];
   cmd->command.copy.dst_offset = dst_offset;
-  cmd->command.copy.cb = size;
+  cmd->command.copy.size = size;
 
   POname(clRetainMemObject)(src_buffer);
+  src_buffer->owning_device = command_queue->device;
   POname(clRetainMemObject)(dst_buffer);
-
   dst_buffer->owning_device = command_queue->device;
   
   pocl_command_enqueue(command_queue, cmd);

@@ -25,13 +25,14 @@
 
 include("bitcode_rules")
 
-set(KERNEL_SOURCES ${SOURCES_WITHOUT_VML})
+set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
-foreach(FILE atomics.cl)
+foreach(FILE printf_base.c atomics.cl)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
 endforeach()
 
 foreach(FILE
+  async_work_group_copy.cl async_work_group_strided_copy.cl
   atomic_add.ll atomic_and.ll atomic_cmpxchg.ll atomic_dec.ll atomic_inc.ll
   atomic_min.ll atomic_max.ll atomic_or.ll atomic_sub.ll atomic_xchg.ll
   atomic_xor.ll barrier.ll
@@ -39,6 +40,7 @@ foreach(FILE
   get_local_id.c get_local_size.c get_num_groups.c
   get_global_offset.c
   printf.c
+  wait_group_events.cl
   )
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
   list(APPEND KERNEL_SOURCES "cuda/${FILE}")
@@ -54,11 +56,7 @@ else( CMAKE_SIZEOF_VOID_P EQUAL 8 )
 endif( CMAKE_SIZEOF_VOID_P EQUAL 8 )
 
 
-set(CLANG_FLAGS "-emit-llvm" "-target" "${LLVM_TARGET}" "-D_CL_DISABLE_HALF")
-
-if(POCL_USE_FAKE_ADDR_SPACE_IDS)
-  list(APPEND CLANG_FLAGS "-Xclang" "-ffake-address-space-map" "-DPOCL_USE_FAKE_ADDR_SPACE_IDS")
-endif()
+set(CLANG_FLAGS "-ffreestanding" "-emit-llvm" "-target" "${LLVM_TARGET}" "-D_CL_DISABLE_HALF")
 
 # Enable all extensions
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${CUDA_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${CUDA_DEVICE_CL_VERSION}" "-Xclang" "-cl-ext=all" ${KERNEL_CL_FLAGS})
@@ -71,7 +69,7 @@ foreach(EXT ${CUDA_DEVICE_EXTENSIONS})
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-make_kernel_bc(KERNEL_BC "${LLVM_TARGET}" "BCs" ${KERNEL_SOURCES})
+make_kernel_bc(KERNEL_BC "${LLVM_TARGET}" "BCs" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
 message(STATUS "${LLVM_TARGET} Kernel BC: ${KERNEL_BC}")
@@ -86,4 +84,4 @@ list(APPEND KERNEL_TARGET_LIST "kernel_${LLVM_TARGET}")
 set(KERNEL_TARGET_LIST "${KERNEL_TARGET_LIST}" PARENT_SCOPE)
 
 install(FILES "${KERNEL_BC}"
-        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}")
+        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}" COMPONENT "lib")

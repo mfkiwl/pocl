@@ -15,6 +15,10 @@
 # include <inttypes.h>
 #endif
 
+#include "config.h"
+
+#include "pocl_export.h"
+
 // size_t print spec
 #ifndef PRIuS
 # define PRIuS "zu"
@@ -55,21 +59,16 @@ extern "C" {
 #define POCL_DEBUG_FLAG_HSA 0x100
 #define POCL_DEBUG_FLAG_TCE 0x200
 #define POCL_DEBUG_FLAG_CUDA 0x400
+#define POCL_DEBUG_FLAG_WARNING 0x800
+#define POCL_DEBUG_FLAG_ERROR 0x1000
 #define POCL_DEBUG_FLAG_ALL (uint64_t)(-1)
 
 #define POCL_FILTER_TYPE_INFO 1
 #define POCL_FILTER_TYPE_WARN 2
 #define POCL_FILTER_TYPE_ERR 3
 
-
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
-
 /* Debugging macros. Also macros for marking unimplemented parts of specs or
    untested parts of the implementation. */
-
-extern int pocl_aborting;
 
 #define POCL_ABORT_UNIMPLEMENTED(MSG)                                   \
     do {                                                                \
@@ -94,7 +93,6 @@ extern int pocl_aborting;
 
 #define POCL_ABORT(...)                                                 \
     do {                                                                \
-        pocl_aborting = 1;                                              \
         fprintf(stderr, __VA_ARGS__);                                   \
         abort();                                                        \
     } while (0)
@@ -107,14 +105,12 @@ extern int pocl_aborting;
                               *errcode_ret = CL_SUCCESS;                \
                             } } while (0)
 
-
-
-#include "config.h"
-
 #ifdef POCL_DEBUG_MESSAGES
 
+POCL_EXPORT
     extern uint64_t pocl_debug_messages_filter;
-    extern int stderr_is_a_tty;
+POCL_EXPORT
+    extern int pocl_stderr_is_a_tty;
 
     #define POCL_DEBUGGING_ON (pocl_debug_messages_filter)
 
@@ -124,10 +120,14 @@ extern int pocl_aborting;
     #define __func__ __FUNCTION__
     #endif
 
-        int pocl_fprintf_err (const char* format, ...);
         #define POCL_DEBUG_HEADER(FILTER, FILTER_TYPE) \
             pocl_debug_print_header (__func__, __LINE__, #FILTER, FILTER_TYPE);
+POCL_EXPORT
+        extern void pocl_debug_output_lock ();
+POCL_EXPORT
+        extern void pocl_debug_output_unlock ();
         extern void pocl_debug_messages_setup (const char *debug);
+POCL_EXPORT
         extern void pocl_debug_print_header (const char * func, unsigned line,
                                              const char* filter, int filter_type);
         extern void pocl_debug_measure_start (uint64_t* start);
@@ -142,45 +142,47 @@ extern int pocl_aborting;
           pocl_debug_measure_start(&pocl_time_start_ ## SUFFIX);
 
         #define POCL_MEASURE_FINISH(SUFFIX) \
-          pocl_debug_measure_finish(&pocl_time_start_ ## SUFFIX, \
-                         &pocl_time_finish_ ## SUFFIX, "API: " #SUFFIX, \
+          pocl_debug_measure_finish (&pocl_time_start_ ## SUFFIX,           \
+                         &pocl_time_finish_ ## SUFFIX, "API: " #SUFFIX,     \
                          __func__, __LINE__);
 
     #define POCL_MSG_PRINT_F(FILTER, TYPE, ERRCODE, ...)                    \
         do {                                                                \
-            if (pocl_debug_messages_filter & POCL_DEBUG_FLAG_ ## FILTER) {  \
+          if (pocl_debug_messages_filter & POCL_DEBUG_FLAG_ ## FILTER) {    \
+            pocl_debug_output_lock ();                                      \
                 POCL_DEBUG_HEADER(FILTER, POCL_FILTER_TYPE_ ## TYPE)        \
-                if (stderr_is_a_tty)                                        \
-                  pocl_fprintf_err ("%s", POCL_COLOR_BOLDRED                \
+                if (pocl_stderr_is_a_tty)                                   \
+                  fprintf (stderr, "%s", POCL_COLOR_BOLDRED                 \
                                     ERRCODE " "  POCL_COLOR_RESET);         \
                 else                                                        \
-                  pocl_fprintf_err ("%s", ERRCODE " ");                     \
-                pocl_fprintf_err (__VA_ARGS__);                             \
-            }                                                               \
+                  fprintf (stderr, "%s", ERRCODE " ");                      \
+                fprintf (stderr, __VA_ARGS__);                              \
+            pocl_debug_output_unlock ();                                    \
+          }                                                                 \
         } while (0)
 
     #define POCL_MSG_PRINT2(FILTER, func, line, ...)                        \
         do {                                                                \
-            if (pocl_debug_messages_filter & POCL_DEBUG_FLAG_ ## FILTER) {  \
+          if (pocl_debug_messages_filter & POCL_DEBUG_FLAG_ ## FILTER) {    \
+            pocl_debug_output_lock ();                                      \
                 pocl_debug_print_header (func, line,                        \
                                  #FILTER, POCL_FILTER_TYPE_INFO);           \
-                pocl_fprintf_err (__VA_ARGS__);                             \
-            }                                                               \
+                fprintf  (stderr, __VA_ARGS__);                             \
+            pocl_debug_output_unlock ();                                    \
+          }                                                                 \
         } while (0)
 
-    #define POCL_MSG_PRINT(TYPE, ERRCODE, ...)                              \
-            POCL_MSG_PRINT_F(GENERAL, TYPE, ERRCODE, __VA_ARGS__)
 
     #define POCL_MSG_WARN2(errcode, ...) \
-              POCL_MSG_PRINT(WARN, errcode, __VA_ARGS__)
+              POCL_MSG_PRINT_F(WARNING, WARN, errcode, __VA_ARGS__)
     #define POCL_MSG_WARN(...)  POCL_MSG_WARN2("", __VA_ARGS__)
 
     #define POCL_MSG_ERR2(errcode, ...) \
-          POCL_MSG_PRINT(ERR, errcode, __VA_ARGS__)
+          POCL_MSG_PRINT_F(ERROR, ERR, errcode, __VA_ARGS__)
     #define POCL_MSG_ERR(...)  POCL_MSG_ERR2("", __VA_ARGS__)
 
     #define POCL_MSG_PRINT_INFO2(errcode, ...) \
-          POCL_MSG_PRINT(INFO, errcode, __VA_ARGS__)
+          POCL_MSG_PRINT_F(GENERAL, INFO, errcode, __VA_ARGS__)
     #define POCL_MSG_PRINT_INFO(...) POCL_MSG_PRINT_INFO2("", __VA_ARGS__)
 
     #define POCL_MSG_PRINT_INFO_F(filter, errcode, ...) \
@@ -207,47 +209,46 @@ extern int pocl_aborting;
     #define POCL_MSG_PRINT_GENERAL2(errcode, ...) POCL_MSG_PRINT_INFO_F(GENERAL, errcode, __VA_ARGS__)
     #define POCL_MSG_PRINT_GENERAL(...) POCL_MSG_PRINT_INFO_F(GENERAL, "", __VA_ARGS__)
 
-    #define POCL_DEBUG_EVENT_TIME(eventp, msg) \
-        pocl_debug_print_duration(__func__, __LINE__, "Event " msg, (uint64_t)((*eventp)->time_end - (*eventp)->time_start))
-
 #else
 
     #define POCL_DEBUGGING_ON 0
 
-    #define POCL_MSG_PRINT_F(...)
-    #define POCL_MSG_PRINT(...)
-    #define POCL_MSG_PRINT2(...)
-    #define POCL_MSG_WARN(...)
-    #define POCL_MSG_WARN2(...)
-    #define POCL_MSG_ERR(...)
-    #define POCL_MSG_ERR2(...)
-    #define POCL_MSG_PRINT_INFO(...)
-    #define POCL_MSG_PRINT_INFO2(...)
-    #define POCL_MSG_PRINT_INFO_F(...)
+    #define POCL_MSG_PRINT_F(...)  do {} while (0)
+    #define POCL_MSG_PRINT(...)  do {} while (0)
+    #define POCL_MSG_PRINT2(...)  do {} while (0)
+    #define POCL_MSG_WARN(...)  do {} while (0)
+    #define POCL_MSG_WARN2(...)  do {} while (0)
+    #define POCL_MSG_ERR(...)  do {} while (0)
+    #define POCL_MSG_ERR2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_INFO(...)  do {} while (0)
+    #define POCL_MSG_PRINT_INFO2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_INFO_F(...)  do {} while (0)
 
     #define POCL_DEBUG_HEADER
-    #define POCL_MEASURE_START(...)
-    #define POCL_MEASURE_FINISH(...)
-    #define POCL_DEBUG_EVENT_TIME(...)
+    #define POCL_MEASURE_START(...)  do {} while (0)
+    #define POCL_MEASURE_FINISH(...)  do {} while (0)
+    #define POCL_DEBUG_EVENT_TIME(...)  do {} while (0)
 
-    #define POCL_MSG_PRINT_HSA2(...)
-    #define POCL_MSG_PRINT_HSA(...)
-    #define POCL_MSG_PRINT_TCE2(...)
-    #define POCL_MSG_PRINT_TCE(...)
-    #define POCL_MSG_PRINT_LOCKING2(...)
-    #define POCL_MSG_PRINT_LOCKING(...)
-    #define POCL_MSG_PRINT_REFCOUNTS2(...)
-    #define POCL_MSG_PRINT_REFCOUNTS(...)
-    #define POCL_MSG_PRINT_CACHE2(...)
-    #define POCL_MSG_PRINT_CACHE(...)
-    #define POCL_MSG_PRINT_EVENTS2(...)
-    #define POCL_MSG_PRINT_EVENTS(...)
-    #define POCL_MSG_PRINT_LLVM2(...)
-    #define POCL_MSG_PRINT_LLVM(...)
-    #define POCL_MSG_PRINT_MEMORY2(...)
-    #define POCL_MSG_PRINT_MEMORY(...)
-    #define POCL_MSG_PRINT_GENERAL2(...)
-    #define POCL_MSG_PRINT_GENERAL(...)
+    #define POCL_MSG_PRINT_CUDA2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_CUDA(...)  do {} while (0)
+    #define POCL_MSG_PRINT_HSA2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_HSA(...)  do {} while (0)
+    #define POCL_MSG_PRINT_TCE2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_TCE(...)  do {} while (0)
+    #define POCL_MSG_PRINT_LOCKING2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_LOCKING(...)  do {} while (0)
+    #define POCL_MSG_PRINT_REFCOUNTS2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_REFCOUNTS(...)  do {} while (0)
+    #define POCL_MSG_PRINT_CACHE2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_CACHE(...)  do {} while (0)
+    #define POCL_MSG_PRINT_EVENTS2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_EVENTS(...)  do {} while (0)
+    #define POCL_MSG_PRINT_LLVM2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_LLVM(...)  do {} while (0)
+    #define POCL_MSG_PRINT_MEMORY2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_MEMORY(...)  do {} while (0)
+    #define POCL_MSG_PRINT_GENERAL2(...)  do {} while (0)
+    #define POCL_MSG_PRINT_GENERAL(...)  do {} while (0)
 
 #endif
 
@@ -298,11 +299,29 @@ extern int pocl_aborting;
     }                                                                       \
   while (0)
 
+#define POCL_GOTO_LABEL_COND(label, cond, err_code)                           \
+  do                                                                          \
+    {                                                                         \
+      if (cond)                                                               \
+        {                                                                     \
+          POCL_MSG_ERR2 (#err_code, "%s\n", #cond);                           \
+          errcode = err_code;                                                 \
+          goto label;                                                         \
+        }                                                                     \
+    }                                                                         \
+  while (0)
 
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+#define POCL_GOTO_LABEL_ON(label, cond, err_code, ...)                        \
+  do                                                                          \
+    {                                                                         \
+      if (cond)                                                               \
+        {                                                                     \
+          POCL_MSG_ERR2 (#err_code, __VA_ARGS__);                             \
+          errcode = err_code;                                                 \
+          goto label;                                                         \
+        }                                                                     \
+    }                                                                         \
+  while (0)
 
 #ifdef __cplusplus
 }

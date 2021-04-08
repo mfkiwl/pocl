@@ -1,5 +1,289 @@
-0.15 unreleased
-===============
+1.7 unreleased
+==============
+
+Notable User Facing Changes
+---------------------------
+
+- Added support for the cl_nv_device_attribute_query extension on CUDA devices.
+- improved support for SPIR-V binaries when using CPU device:
+  - improved local variables support
+  - OpenCL 2.0 atomics are now supported
+  - work_group_barrier, to_local/to_global are implemented
+- Changed default target OpenCL version to 3.0. Note: PoCL still lacks support 
+  for most new features in OpenCL 3.0 and calling such features might result in
+  undefined behaviour.
+- Implemented OpenCL 3.0 features
+  - clGetDeviceInfo queries
+    - CL_DEVICE_ATOMIC_MEMORY_CAPABILITIES (Minimal implementation)
+    - CL_DEVICE_ATOMIC_FENCE_CAPABILITIES (Minimal implementation)
+
+1.6 December 2020
+=================
+
+Notable User Facing Changes
+---------------------------
+
+- Support for LLVM 11.
+- CUDA kernels using constant __local blocks are now ABI incompatible with
+  previous release. Users need to delete their pocl cache.
+- SINGLE_LLVM_LIB CMake option removed. Instead reintroduce STATIC_LLVM and
+  PoCL now relies on llvm-config to provide correct shared/static libraries
+  for linkage.
+- improved debugging of OpenCL code with CPU driver.
+  See doc/sphinx/source/debug.rst
+
+Optimizations
+-------------
+
+- Improved the PTX code generation for __local blocks. Previously constant
+  __local blocks and __local arguments were using one dynamic shared CUDA
+  memory block with offsets computed at runtime. Now if there is no __local
+  arguments, separate static shared CUDA memory is used. If there are
+  __local arguments, the constant __local blocks are indexed with compile
+  time constants. This improves the performance due to better SASS code
+  generation because it avoids what appears to be a pointer aliasing issue.
+
+  Running SHOC benchmark GEMM with size class 4 on a NVIDIA Titan X gives
+  the following performance improvements.
+
+    sgemm_n:        23.2%
+    sgemm_t:        18.5%
+    sgemm_n_pcie:   23.3%
+    sgemm_t_pcie:   19.5%
+    dgemm_n:        51.4%
+    dgemm_t:         2.8%
+    dgemm_n_pcie:   51.6%
+    dgemm_t_pcie:    6.9%
+
+- Improved handling of command queue barriers: Previously an internal
+  event was added from all previous commands to it, even with in-order
+  queues, causing slowdown with applications that have a lot of commands.
+  Now additional events are omitted in in-order queues. Measured with the
+  PolyBench OpenCL Gramschmidt kernel, execution time went down from 44
+  seconds to around 0.5 seconds.
+
+Notable Bug Fixes
+-----------------
+- Fix LLVM loop vectorizing remarks printing (POCL_VECTORIZER_REMARKS=1).
+- Fix an issue in which the loop vectorizer produced code with invalid
+  memory reads (issue #757).
+- Fix compilation error when CMake option SINGLE_LLVM_LIB is set to OFF.
+- Fix wrongly output dlerror (Undefined symbol) after dlopen,
+  caused by a previous libdl call in an ICD loader (issue #877).
+- [CPU] safety margin of pocl's CPU driver local memory allocation
+  has been reduced to a much more reasonable value
+- [CPU] buffer size for OpenCL printf is now configurable with
+  PRINTF_BUFFER_SIZE CMake variable
+- [CPU] local memory size reported is now the size of last level of non-shared
+  data cache (usually L1 or L2 depending on CPU), if hwloc can determine it.
+
+Security
+--------
+
+- Added a build parameter HARDENING_ENABLE that applies hardening flags
+  present in some modern compilers to produce a more secure libpocl.so
+  with the trade-off in performance.
+
+1.5 April 2020
+==============
+
+Notable User Facing Changes
+---------------------------
+- Support for LLVM 10.
+- POCL_TRACE_EVENT, POCL_TRACE_EVENT_OPT and POCL_TRACE_EVENT_FILTER
+  environment variables were renamed to
+  POCL_TRACING, POCL_TRACING_OPT and POCL_TRACING_FILTER, respectively.
+- Refactored the implementation of convert_T() OpenCL functions to better meet
+  autovectorization criteria under LLVM, thus utilizing device's SIMD ISA
+  capabilities where available; e.g. on an ARM64 Cortex-A72 convert_int8(short8)
+  is 5.5x faster now when measured in a tight loop.
+- A lot of fixes.
+
+Usability
+---------
+- A simple per-kernel execution time statistics atexit() for quick and easy
+  low-impact per-device profiling purposes (relies on event time stamps purely).
+  It can be enabled by setting POCL_TRACING env to 'cq'.
+
+1.4 September 2019
+==================
+
+Highlights
+----------
+- pocl-accel: An example driver and support infrastructure for OpenCL 1.2
+  CL_DEVICE_TYPE_CUSTOM hardware accelerators which implement a memory
+  mapped control interface.
+
+- Improved SPIR and SPIR-V support. clCreateProgramWithIL() implemented,
+  Kernel library (for CPU target) support for SPIR-mangling improved
+
+Kernel Compiler
+---------------
+- Specialize work-group functions for global offset (0,0,0).
+- A pocl installation with clang, hwloc statically linked in
+  is now relocatable.
+- Clang/LLVM versions older than 6.0 are no longer supported.
+- Create specialized work-group functions for small (defined by a device
+  driver specific limit) grid dimensions.
+- Add Range Metadata to various ID queries etc. to improve vectorizing
+  index computation to smaller lane widths and other optimizations.
+- Passes only the launched kernel to work-group generation and code gen, thus
+  speeding up the compilation process.
+
+Misc.
+-----
+- hsa-native: Downgraded the advertised version to 1.2
+  which is closer to the truth (fixes OCLTest of Glow).
+- hsa-native: Add support for byval (struct) argument passing.
+- hsa-native: Allow offsets in block copy.
+
+Notable Internal Changes
+------------------------
+- Allow devices to utilize the ROCm-Device-Libs ocml
+  builtins for their builtin libraries if seen fit.
+  https://github.com/RadeonOpenCompute/ROCm-Device-Libs/tree/master/ocml
+  was mirrored in lib/kernel and made it easy to cherry pick
+  implementations to targets' kernel libary.
+
+- libltdl is replaced with libdl on UNIX platforms.
+
+Notable Bug Fixes
+-----------------
+- Fix a race condition in device initialization, which
+  caused issues in applications that cause reinitialization
+  of pocl device drivers (appeared in Glow's OCLTest).
+
+Device Driver Specific
+----------------------
+- hsa-native: Downgraded the advertised version to 1.2
+  which is closer to the truth (fixes OCLTest of Glow).
+- hsa-native: Add support for byval (struct) argument passing.
+- hsa-native: Allow offsets in block copy.
+
+1.3 April 2019
+==============
+
+Highlights
+----------
+- Support for Clang/LLVM 8.0.
+- Support ICD on OSX.
+
+Misc.
+-----
+- Ability to have size_t (basically derived from the largest supported
+  object) smaller than CL_ADDRESS_BITS. This is an unofficial optional
+  extension as the OpenCL standard mandates it to be the same.
+- POCL_EXTRA_BUILD_FLAGS can be used to force add extra build flags such as
+  '-g' to all clBuildProgram() calls.
+- Allow building pocl without CPU backend drivers. When set to off,
+  CPU will not appear in the list of OpenCL devices reported by pocl.
+  Controllable via ENABLE_HOST_CPU_DEVICES=off cmake option.
+- Build logs are now produced also for illegal options passed to the kernel
+  build e.g. via the options parameter of clBuildProgram().
+- hsa-native: Device side printf-support and alternative < 1.2 non-standard
+  C99 printf exposing support.
+- pocl's binary format has been slightly updated (changes are listed in
+  the top of pocl_binary.c file) to version 7, but pocl can still read
+  also the previous version 6 format.
+- Allow local-size-specializing also SPMD-targeted kernels to enable compile
+  time optimization of code depending on the local dimensions.
+- Support older GLIBC versions.
+- HSA: Initial experimental support for native-ISA compilation on top of HSA
+  runtime. Tested and works currently only on phsa-runtime. Can be enabled
+  with ENABLE_HSAIL=off cmake option.
+- Add option to disable installing of OpenCL headers.
+
+Notable Bug Fixes
+-----------------
+- Fixed kernel debug symbol generation.
+- HSA: fix kernel caching.
+- Fix issue #661: clCreateImage doesn't fail with unsupported image type.
+- Fix issue #668: handle non-kernel functions with barriers properly.
+- Fix issue #671: Unable to build pocl with CUDA support with LLVM 7 and host GCC 8.2.
+- Fix image format/size handling with multiple devices in context.
+- Fix padding issue with context arrays that manifested as unaligned
+  access errors after autovectorization.
+
+Notable Internal Changes
+------------------------
+- Add group ids as hidden kernel arguments instead of digging them up
+  from the context struct.
+- Ability to generate the final binary via separate assembly text + assembler
+  call. Useful for supporting LLVM targets without direct binary emission
+  support.
+- Use Clang's Driver API for launching the final linkage step. This way we
+  utilize the toolchain registry with correct linkage steps required for
+  the target at hand.
+- Add 'device_aux_functions' to the driver layer attributes. This can be used
+  to retain device-specific functions required by the target across the
+  pruning of unused globals.
+- The "default kernels" hack which was used to store kernel metadata, has
+  been removed. Kernel metadata are now stored only once, in cl_program
+  struct; every new cl_kernel structs holds only a pointer.
+- Major 'pthread' CPU driver cleanup.
+- Major Workgroup.cc cleanup.
+
+1.2 September 2018
+==================
+
+- LLVM 7.0 is now supported.
+
+- Version 2.0 of hwloc library is supported.
+
+- device-side printf; more consistent printf output.
+
+1.1 March 2018
+==============
+
+Highlights
+----------
+
+- LLVM 6.0 is now supported.
+
+- Reintroduced experimental SPIR LLVM bitcode support to pocl.
+  Requires LLVM 5 or newer. New experimental feature: SPIR-V support;
+  requires a working llvm-spirv converter. Currently only loading
+  of SPIR-V binaries by pocl is supported, not output.
+  See docs/features.rst for more details.
+
+- Refactored pocl cache now does away with LLVM file locks and relies
+  entirely on system calls for proper synchronization. Additionally,
+  cache file writes are now fdatasync()ed.
+
+- Improved kernel compilation time (with cold cache). Improvement
+  depends on sources - it's bigger for large programs with many kernels.
+  Luxmark now compiles in seconds instead of dozens of seconds;
+  internal pocl tests run in 30-50% less time.
+
+- LLVM Scalarizer pass is now only called for SPMD devices. Performance
+  change varies across tests, but positive seems to outweigh negative.
+
+- Implemented uninitialization callback for device drivers. This is
+  triggered when the last cl_context is released. Currently only the
+  CPU driver implements the callback.
+
+- Removed libpoclu from installed files; this library contains helpers
+  for pocl's internal tests, and from installed files was only used by
+  poclcc, which has been updated to not rely on it.
+
+- POCL_MAX_WORK_GROUP_SIZE is now respected by all devices. This variable
+  limits the reported maximum WG sizes & dimensions; tuning max WG size
+  may improve performance due to cache locality improvement.
+
+- CL_PLATFORM_VERSION now contains much more information about how
+  pocl was built.
+
+- For users still building with Vecmathlib, performance should be back
+  to levels of pocl 0.14 (there was a huge drop caused by a change
+  in -O0 optimization level of LLVM 5.0).
+
+- Improved support for ARM and ARM64 architectures. All internal tests
+  now pass (on Cortex-A53 and Cortex-A15), although it's still far
+  from full conformance.
+
+
+1.0 December 2017
+=================
 
 Highlights
 ----------
@@ -7,6 +291,35 @@ Highlights
   into account standard constraints, SIMD width for vectorization as
   well as the number of compute units available on the device.
 - Support for NVIDIA GPUs via a new CUDA backend (currently experimental).
+- Removed support for BBVectorizer.
+- LLVM 5.0 is now supported.
+- A few build options have been added for distribution builds,
+  see README.packaging.
+- Somewhat improved scalability in the CPU driver. CPUs with many cores
+  and programs using a lot of WIs with small kernels can run somewhat faster.
+- The OpenCL 1.2 conformance tests now pass with selected CPUs. There are some
+  caveats though - see the documentation.
+- When conformance is enabled, some kernel library functions might be
+  slower than in previous releases.
+- Pocl now reports OpenCL 1.2 instead of 2.0, except HSA enabled builds.
+- Updated format of pocl binaries, which is NOT backwards compatible.
+  You'll need to clean any kernel caches.
+- Fixed several memory leaks.
+- Unresolved symbols (missing/misspelled functions etc) in a kernel will
+  result in error in clBuildProgram() instead of pocl silently ignoring
+  them and then aborting at dlopen().
+- New env variable POCL_MEMORY_LIMIT=<num> limits the Global memory size
+  reported by pocl to <num> gigabytes.
+- New env variable POCL_AFFINITY (defaults to 0): if enabled, sets
+  the affinity of each CPU driver pthread to a single core.
+- Improved AVX512 support (with LLVM 5.0). Note that even with LLVM 5.0
+  there are still a few bugs (see pocl issue #555); AVX512 + LLVM 4.0 are
+  a lot more broken, and probably not worth trying.
+- POCL_DEBUG env var has been revamped. You can now limit debuginfo to
+  these categories (or their combination): all,error,warning,general
+  memory,llvm,events,cache,locking,refcounts,timing,hsa,tce,cuda
+  The old setting POCL_DEBUG=1 now equals error+warning+general.
+
 
 0.14 April 2017
 ===============

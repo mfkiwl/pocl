@@ -2,17 +2,18 @@
 
    Copyright (c) 2011 Erik Schnetter <eschnetter@perimeterinstitute.ca>
                       Perimeter Institute for Theoretical Physics
-   
+                 2019 Pekka Jääskeläinen
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
    in the Software without restriction, including without limitation the rights
    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
    copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -48,40 +49,61 @@
   {                                                     \
     return (VTYPE)(NAME(a.LO), NAME(a.HI));             \
   }
-#define DEFINE_BUILTIN_V_V(NAME)                        \
+
+/* Defines an OpenCL builtin function for half precision floating point
+   types using Clang scalar builtins. */
+
+#define DEFINE_HALF_BUILTIN_V_V(NAME, FUNC)		\
   __IF_FP16(                                            \
   half __attribute__ ((overloadable))                   \
   NAME(half a)                                          \
   {                                                     \
-    /* use float builtin */                             \
-    return __builtin_##NAME##f(a);                      \
+    return FUNC(a);					\
   }                                                     \
   IMPLEMENT_BUILTIN_V_V(NAME, half2   , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, half3   , lo, s2)         \
   IMPLEMENT_BUILTIN_V_V(NAME, half4   , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, half8   , lo, hi)         \
-  IMPLEMENT_BUILTIN_V_V(NAME, half16  , lo, hi))        \
+  IMPLEMENT_BUILTIN_V_V(NAME, half16  , lo, hi))
+
+/* Defines an OpenCL builtin function for single precision floating point
+   types using a scalar function. */
+
+#define DEFINE_FLOAT_BUILTIN_V_V(NAME, FUNC)		\
   float __attribute__ ((overloadable))                  \
   NAME(float a)                                         \
   {                                                     \
-    return __builtin_##NAME##f(a);                      \
+    return FUNC(a);					\
   }                                                     \
   IMPLEMENT_BUILTIN_V_V(NAME, float2  , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, float4  , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, float3  , lo, s2)         \
   IMPLEMENT_BUILTIN_V_V(NAME, float8  , lo, hi)         \
-  IMPLEMENT_BUILTIN_V_V(NAME, float16 , lo, hi)         \
+  IMPLEMENT_BUILTIN_V_V(NAME, float16 , lo, hi)
+
+/* Defines an OpenCL builtin function for double precision floating point
+   types using a scalar function. */
+
+#define DEFINE_DOUBLE_BUILTIN_V_V(NAME, FUNC)		\
   __IF_FP64(                                            \
   double __attribute__ ((overloadable))                 \
   NAME(double a)                                        \
   {                                                     \
-    return __builtin_##NAME(a);                         \
+    return FUNC(a);					\
   }                                                     \
   IMPLEMENT_BUILTIN_V_V(NAME, double2 , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, double3 , lo, s2)         \
   IMPLEMENT_BUILTIN_V_V(NAME, double4 , lo, hi)         \
   IMPLEMENT_BUILTIN_V_V(NAME, double8 , lo, hi)         \
-  IMPLEMENT_BUILTIN_V_V(NAME, double16, lo, hi)) 
+  IMPLEMENT_BUILTIN_V_V(NAME, double16, lo, hi))
+
+/* Defines an OpenCL builtin function for all floating point
+   gentypes using Clang scalar builtins. */
+
+#define DEFINE_BUILTIN_V_V(NAME)                        \
+  DEFINE_HALF_BUILTIN_V_V(NAME, __builtin_##NAME##f)	\
+  DEFINE_FLOAT_BUILTIN_V_V(NAME, __builtin_##NAME##f)	\
+  DEFINE_DOUBLE_BUILTIN_V_V(NAME, __builtin_##NAME)
 
 #define IMPLEMENT_BUILTIN_V_VV(NAME, VTYPE, LO, HI)     \
   VTYPE __attribute__ ((overloadable))                  \
@@ -91,7 +113,7 @@
   }
 #define DEFINE_BUILTIN_V_VV(NAME)                       \
   __IF_FP16(                                            \
-  half __attribute__ ((overloadable))                   \
+  half _CL_OVERLOADABLE _CL_READNONE                   \
   NAME(half a, half b)                                  \
   {                                                     \
     /* use float builtin */                             \
@@ -102,7 +124,7 @@
   IMPLEMENT_BUILTIN_V_VV(NAME, half4   , lo, hi)        \
   IMPLEMENT_BUILTIN_V_VV(NAME, half8   , lo, hi)        \
   IMPLEMENT_BUILTIN_V_VV(NAME, half16  , lo, hi))       \
-  float __attribute__ ((overloadable))                  \
+  float _CL_OVERLOADABLE _CL_READNONE                  \
   NAME(float a, float b)                                \
   {                                                     \
     return __builtin_##NAME##f(a, b);                   \
@@ -113,7 +135,7 @@
   IMPLEMENT_BUILTIN_V_VV(NAME, float8  , lo, hi)        \
   IMPLEMENT_BUILTIN_V_VV(NAME, float16 , lo, hi)        \
   __IF_FP64(                                            \
-  double __attribute__ ((overloadable))                 \
+  double _CL_OVERLOADABLE _CL_READNONE                 \
   NAME(double a, double b)                              \
   {                                                     \
     return __builtin_##NAME(a, b);                      \
@@ -554,7 +576,7 @@
   IMPLEMENT_EXPR_V_VV(NAME, EXPR, double16, double, long16 , long ))
 
 #define IMPLEMENT_EXPR_V_VVV(NAME, EXPR, VTYPE, STYPE, JTYPE, SJTYPE)   \
-  VTYPE __attribute__ ((overloadable))                                  \
+  VTYPE _CL_OVERLOADABLE _CL_READNONE                                  \
   NAME(VTYPE a, VTYPE b, VTYPE c)                                       \
   {                                                                     \
     typedef VTYPE vtype;                                                \
@@ -934,78 +956,120 @@
   IMPLEMENT_EXPR_V_VJ(NAME, EXPR, double8 , double, int8 , int)         \
   IMPLEMENT_EXPR_V_VJ(NAME, EXPR, double16, double, int16, int))
 
-#define IMPLEMENT_EXPR_V_VI(NAME, EXPR, VTYPE, STYPE, ITYPE)    \
-  VTYPE __attribute__ ((overloadable))                          \
-  NAME(VTYPE a, ITYPE b)                                        \
-  {                                                             \
-    typedef VTYPE vtype;                                        \
-    typedef STYPE stype;                                        \
-    typedef ITYPE itype;                                        \
-    return EXPR;                                                \
+#define IMPLEMENT_EXPR_V_VI(NAME, EXPR, VTYPE, STYPE, ITYPE, JTYPE) \
+  VTYPE __attribute__ ((overloadable))                              \
+  NAME(VTYPE a, ITYPE b)                                            \
+  {                                                                 \
+    typedef VTYPE vtype;                                            \
+    typedef STYPE stype;                                            \
+    typedef ITYPE itype;                                            \
+    typedef JTYPE jtype;                                            \
+    return EXPR;                                                    \
   }
 // All V_VS cases are excluded
 #define DEFINE_EXPR_V_VI(NAME, EXPR)                            \
   __IF_FP16(                                                    \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half2   , half  , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half3   , half  , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half4   , half  , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half8   , half  , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half16  , half  , int))       \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float2  , float , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float3  , float , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float4  , float , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float8  , float , int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float16 , float , int)        \
-  __IF_FP64(                                                    \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double2 , double, int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double3 , double, int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double4 , double, int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double8 , double, int)        \
-  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double16, double, int))
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half2   , half  , int, int2 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half3   , half  , int, int3 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half4   , half  , int, int4 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half8   , half  , int, int8 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, half16  , half  , int, int16))\
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float2  , float , int, int2 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float3  , float , int, int3 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float4  , float , int, int4 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float8  , float , int, int8 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, float16 , float , int, int16) \
+  __IF_FP64(                                             \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double2 , double, int, int2 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double3 , double, int, int3 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double4 , double, int, int4 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double8 , double, int, int8 ) \
+  IMPLEMENT_EXPR_V_VI(NAME, EXPR, double16, double, int, int16))
 
-#define IMPLEMENT_EXPR_V_VPV(NAME, EXPR, VTYPE, STYPE)  \
+#define IMPLEMENT_EXPR_V_VPV(NAME, EXPR, VTYPE, STYPE, ITYPE)                 \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, __global VTYPE *b)      \
+  {                                                                           \
+    typedef VTYPE vtype;                                                      \
+    typedef STYPE stype;                                                      \
+    typedef ITYPE itype;                                                      \
+    return EXPR;                                                              \
+  }                                                                           \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, __local VTYPE *b)       \
+  {                                                                           \
+    typedef VTYPE vtype;                                                      \
+    typedef STYPE stype;                                                      \
+    typedef ITYPE itype;                                                      \
+    return EXPR;                                                              \
+  }                                                                           \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, __private VTYPE *b)     \
+  {                                                                           \
+    typedef VTYPE vtype;                                                      \
+    typedef STYPE stype;                                                      \
+    typedef ITYPE itype;                                                      \
+    return EXPR;                                                              \
+  }
+#define DEFINE_EXPR_V_VPV(NAME, EXPR)                           \
+  __IF_FP16(                                                    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half    , half  , short)     \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half2   , half  , short2)    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half3   , half  , short3)    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half4   , half  , short4)    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half8   , half  , short8)    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half16  , half  , short16))  \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float   , float , int)       \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float2  , float , int2)      \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float3  , float , int3)      \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float4  , float , int4)      \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float8  , float , int8)      \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float16 , float , int16)     \
+  __IF_FP64(                                                    \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double  , double, long)      \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double2 , double, long2)     \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double3 , double, long3)     \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double4 , double, long4)     \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double8 , double, long8)     \
+  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double16, double, long16))
+
+#define IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, VTYPE, STYPE, ITYPE)  \
   VTYPE __attribute__ ((overloadable))                  \
-  NAME(VTYPE a, __global VTYPE *b)                      \
+  NAME(VTYPE a, __global ITYPE *b)                      \
   {                                                     \
     typedef VTYPE vtype;                                \
     typedef STYPE stype;                                \
+    typedef ITYPE itype;                                \
     return EXPR;                                        \
   }                                                     \
   VTYPE __attribute__ ((overloadable))                  \
-  NAME(VTYPE a, __local VTYPE *b)                       \
+  NAME(VTYPE a, __local ITYPE *b)                       \
   {                                                     \
     typedef VTYPE vtype;                                \
     typedef STYPE stype;                                \
+    typedef ITYPE itype;                                \
     return EXPR;                                        \
   }                                                     \
   VTYPE __attribute__ ((overloadable))                  \
-  NAME(VTYPE a, __private VTYPE *b)                     \
+  NAME(VTYPE a, __private ITYPE *b)                     \
   {                                                     \
     typedef VTYPE vtype;                                \
     typedef STYPE stype;                                \
+    typedef ITYPE itype;                                \
     return EXPR;                                        \
   }
-#define DEFINE_EXPR_V_VPV(NAME, EXPR)                   \
-  __IF_FP16(                                            \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half    , half  )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half2   , half  )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half3   , half  )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half4   , half  )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half8   , half  )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, half16  , half  ))   \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float   , float )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float2  , float )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float3  , float )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float4  , float )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float8  , float )    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, float16 , float )    \
+#define DEFINE_EXPR_V_VIPV(NAME, EXPR)                   \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float   , float , int)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float2  , float , int2)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float3  , float , int3)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float4  , float , int4)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float8  , float , int8)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, float16 , float , int16)    \
   __IF_FP64(                                            \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double  , double)    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double2 , double)    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double3 , double)    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double4 , double)    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double8 , double)    \
-  IMPLEMENT_EXPR_V_VPV(NAME, EXPR, double16, double))
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double  , double, int)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double2 , double, int2)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double3 , double, int3)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double4 , double, int4)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double8 , double, int8)    \
+  IMPLEMENT_EXPR_V_VIPV(NAME, EXPR, double16, double, int16))
+
 
 #define IMPLEMENT_EXPR_V_SV(NAME, EXPR, VTYPE, STYPE, JTYPE, SJTYPE)    \
   VTYPE __attribute__ ((overloadable))                                  \
@@ -1466,7 +1530,7 @@
   IMPLEMENT_EXPR_G_GG(NAME, EXPR, ulong16 , ulong , ulong16 , ulong ))
 
 #define IMPLEMENT_EXPR_G_GGG(NAME, EXPR, GTYPE, SGTYPE, UGTYPE, SUGTYPE) \
-  GTYPE __attribute__ ((overloadable))                                  \
+  GTYPE _CL_OVERLOADABLE _CL_READNONE                                  \
   NAME(GTYPE a, GTYPE b, GTYPE c)                                       \
   {                                                                     \
     typedef GTYPE gtype;                                                \
@@ -1580,7 +1644,7 @@
   IMPLEMENT_EXPR_G_GS(NAME, EXPR, ulong16 , ulong , ulong16 , ulong ))
 
 #define IMPLEMENT_EXPR_G_GSS(NAME, EXPR, GTYPE, SGTYPE, UGTYPE, SUGTYPE) \
-  GTYPE __attribute__ ((overloadable))                                  \
+  GTYPE _CL_OVERLOADABLE _CL_READNONE                                  \
   NAME(GTYPE a, SGTYPE b, SGTYPE c)                                     \
   {                                                                     \
     typedef GTYPE gtype;                                                \
@@ -1789,7 +1853,230 @@
   IMPLEMENT_EXPR_J_JJJ(NAME, EXPR, uint8   , uint  , uint8   , uint  )  \
   IMPLEMENT_EXPR_J_JJJ(NAME, EXPR, uint16  , uint  , uint16  , uint  )
 
+/* Defines an OpenCL builtin function for all floating point
+   gentypes and addressspaces using Clang scalar builtins. */
+#define IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE(NAME, VTYPE, ADDRSPACE)             \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, ADDRSPACE VTYPE *b)     \
+  {                                                                           \
+    __private VTYPE c;                                                        \
+    __private VTYPE r = NAME (a, &c);                                         \
+    *b = c;                                                                   \
+    return r;                                                                 \
+  }
+
+#define IMPLEMENT_BUILTIN_V_VPV(NAME, VTYPE, LTYPE, HTYPE, LO, HI)            \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, VTYPE *b)               \
+  {                                                                           \
+    LTYPE c = b->LO;                                                          \
+    HTYPE d = b->HI;                                                          \
+    VTYPE r = (VTYPE) (NAME (a.LO, &c), NAME (a.HI, &d));                     \
+    b->LO = c;                                                                \
+    b->HI = d;                                                                \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, VTYPE, __local)                    \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, VTYPE, __global)
+#define DEFINE_BUILTIN_V_VPV(NAME)                                            \
+  __IF_FP16 (                                                                 \
+  half _CL_OVERLOADABLE _CL_READNONE NAME (half a, __private half *b)         \
+  {                                                                           \
+    /* use float builtin */                                                   \
+    __private float c;                                                        \
+    __private float r = __builtin_##NAME##f (a, &c);                          \
+    *b = c;                                                                   \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, half, __local)                     \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, half, __global)                    \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, half2, half, half, lo, hi)                   \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, half3, half2, half, lo, s2)                  \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, half4, half2, half2, lo, hi)                 \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, half8, half4, half4, lo, hi)                 \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, half16, half8, half8, lo, hi))               \
+  float _CL_OVERLOADABLE _CL_READNONE NAME (float a, __private float *b)      \
+  {                                                                           \
+    return __builtin_##NAME##f (a, b);                                        \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, float, __local)                    \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, float, __global)                   \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, float2, float, float, lo, hi)                \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, float3, float2, float, lo, s2)               \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, float4, float2, float2, lo, hi)              \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, float8, float4, float4, lo, hi)              \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, float16, float8, float8, lo, hi)             \
+  __IF_FP64 (                                                                 \
+  double _CL_OVERLOADABLE _CL_READNONE NAME (double a, __private double *b)   \
+  {                                                                           \
+    return __builtin_##NAME (a, b);                                           \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, double, __local)                   \
+  IMPLEMENT_BUILTIN_V_VPV_ADDRSPACE (NAME, double, __global)                  \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, double2, double, double, lo, hi)             \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, double3, double2, double, lo, s2)            \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, double4, double2, double2, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, double8, double4, double4, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VPV (NAME, double16, double8, double8, lo, hi))
+
+#define IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE(NAME, VTYPE, JTYPE, ADDRSPACE)     \
+  VTYPE __attribute__ ((overloadable))                                        \
+      NAME (VTYPE a, VTYPE b, ADDRSPACE JTYPE *c)                             \
+  {                                                                           \
+    __private JTYPE d;                                                        \
+    __private VTYPE r = NAME (a, b, &d);                                      \
+    *c = d;                                                                   \
+    return r;                                                                 \
+  }
+
+#define IMPLEMENT_BUILTIN_V_VVPJ(NAME, VTYPE, JTYPE, LTYPE, HTYPE, LO, HI)    \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, VTYPE b, JTYPE *c)      \
+  {                                                                           \
+    LTYPE d = c->LO;                                                          \
+    HTYPE e = c->HI;                                                          \
+    VTYPE r = (VTYPE) (NAME (a.LO, b.LO, &d), NAME (a.HI, b.HI, &e));         \
+    c->LO = d;                                                                \
+    c->HI = e;                                                                \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, VTYPE, JTYPE, __local)            \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, VTYPE, JTYPE, __global)
+#define DEFINE_BUILTIN_V_VVPJ(NAME)                                           \
+  __IF_FP16 (                                                                 \
+  half _CL_OVERLOADABLE _CL_READNONE NAME (half a, half b, int *c)            \
+  {                                                                           \
+    /* use float builtin */                                                   \
+    __private int d;                                                          \
+    __private float r = __builtin_##NAME##f (a, b, &d);                       \
+    *c = d;                                                                   \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, half, int, __local)               \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, half, int, __global)              \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, half2, int2, int, int, lo, hi)              \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, half3, int3, int2, int, lo, s2)             \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, half4, int4, int2, int2, lo, hi)            \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, half8, int8, int4, int4, lo, hi)            \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, half16, int16, int8, int8, lo, hi))         \
+  float _CL_OVERLOADABLE _CL_READNONE NAME (float a, float b, int *c)         \
+  {                                                                           \
+    return __builtin_##NAME##f (a, b, c);                                     \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, float, int, __local)              \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, float, int, __global)             \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, float2, int2, int, int, lo, hi)             \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, float3, int3, int2, int, lo, s2)            \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, float4, int4, int2, int2, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, float8, int8, int4, int4, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, float16, int16, int8, int8, lo, hi)         \
+  __IF_FP64 (                                                                 \
+  double _CL_OVERLOADABLE _CL_READNONE NAME (double a, double b, int *c)      \
+  {                                                                           \
+    return __builtin_##NAME (a, b, c);                                        \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, double, int, __local)             \
+  IMPLEMENT_BUILTIN_V_VVPJ_ADDRSPACE (NAME, double, int, __global)            \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, double2, int2, int, int, lo, hi)            \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, double3, int3, int2, int, lo, s2)           \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, double4, int4, int2, int2, lo, hi)          \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, double8, int8, int4, int4, lo, hi)          \
+  IMPLEMENT_BUILTIN_V_VVPJ (NAME, double16, int16, int8, int8, lo, hi))
+
+#define IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE(NAME, VTYPE, JTYPE, ADDRSPACE)      \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, ADDRSPACE JTYPE *c)     \
+  {                                                                           \
+    __private JTYPE d;                                                        \
+    __private VTYPE r = NAME (a, &d);                                         \
+    *c = d;                                                                   \
+    return r;                                                                 \
+  }
+
+#define IMPLEMENT_BUILTIN_V_VPJ(NAME, VTYPE, JTYPE, LTYPE, HTYPE, LO, HI)     \
+  VTYPE __attribute__ ((overloadable)) NAME (VTYPE a, JTYPE *c)               \
+  {                                                                           \
+    LTYPE d = c->LO;                                                          \
+    HTYPE e = c->HI;                                                          \
+    VTYPE r = (VTYPE) (NAME (a.LO, &d), NAME (a.HI, &e));                     \
+    c->LO = d;                                                                \
+    c->HI = e;                                                                \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, VTYPE, JTYPE, __local)             \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, VTYPE, JTYPE, __global)
+#define DEFINE_BUILTIN_V_VPJ(NAME)                                            \
+  __IF_FP16 (                                                                 \
+  half _CL_OVERLOADABLE _CL_READNONE NAME (half a, int *c)                    \
+  {                                                                           \
+    /* use float builtin */                                                   \
+    __private int d;                                                          \
+    __private float r = __builtin_##NAME##f (a, &d);                          \
+    *c = d;                                                                   \
+    return r;                                                                 \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, half, int, __local)                \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, half, int, __global)               \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, half2, int2, int, int, lo, hi)               \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, half3, int3, int2, int, lo, s2)              \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, half4, int4, int2, int2, lo, hi)             \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, half8, int8, int4, int4, lo, hi)             \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, half16, int16, int8, int8, lo, hi))          \
+  float _CL_OVERLOADABLE _CL_READNONE NAME (float a, int *c)                  \
+  {                                                                           \
+    return __builtin_##NAME##f (a, c);                                        \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, float, int, __local)               \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, float, int, __global)              \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, float2, int2, int, int, lo, hi)              \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, float3, int3, int2, int, lo, s2)             \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, float4, int4, int2, int2, lo, hi)            \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, float8, int8, int4, int4, lo, hi)            \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, float16, int16, int8, int8, lo, hi)          \
+  __IF_FP64 (                                                                 \
+  double _CL_OVERLOADABLE _CL_READNONE NAME (double a, int *c)                \
+  {                                                                           \
+    return __builtin_##NAME (a, c);                                           \
+  }                                                                           \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, double, int, __local)              \
+  IMPLEMENT_BUILTIN_V_VPJ_ADDRSPACE (NAME, double, int, __global)             \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, double2, int2, int, int, lo, hi)             \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, double3, int3, int2, int, lo, s2)            \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, double4, int4, int2, int2, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, double8, int8, int4, int4, lo, hi)           \
+  IMPLEMENT_BUILTIN_V_VPJ (NAME, double16, int16, int8, int8, lo, hi))
+
 #define __SINGLE_WI                             \
     if (get_local_id(0) == 0 &&                 \
         get_local_id(1) == 0 &&                 \
         get_local_id(2) == 0)
+
+#ifndef _CL_DECLARE_FUNC_V_V
+#define _CL_DECLARE_FUNC_V_V(NAME)              \
+  float    _CL_OVERLOADABLE NAME(float   );     \
+  float2   _CL_OVERLOADABLE NAME(float2  );     \
+  float3   _CL_OVERLOADABLE NAME(float3  );     \
+  float4   _CL_OVERLOADABLE NAME(float4  );     \
+  float8   _CL_OVERLOADABLE NAME(float8  );     \
+  float16  _CL_OVERLOADABLE NAME(float16 );     \
+  __IF_FP64(                                    \
+  double   _CL_OVERLOADABLE NAME(double  );     \
+  double2  _CL_OVERLOADABLE NAME(double2 );     \
+  double3  _CL_OVERLOADABLE NAME(double3 );     \
+  double4  _CL_OVERLOADABLE NAME(double4 );     \
+  double8  _CL_OVERLOADABLE NAME(double8 );     \
+  double16 _CL_OVERLOADABLE NAME(double16);)
+#endif
+
+#ifndef _CL_DECLARE_FUNC_K_V
+#define _CL_DECLARE_FUNC_K_V(NAME)              \
+  int   _CL_OVERLOADABLE NAME(float   );        \
+  int2  _CL_OVERLOADABLE NAME(float2  );        \
+  int3  _CL_OVERLOADABLE NAME(float3  );        \
+  int4  _CL_OVERLOADABLE NAME(float4  );        \
+  int8  _CL_OVERLOADABLE NAME(float8  );        \
+  int16 _CL_OVERLOADABLE NAME(float16 );        \
+  __IF_FP64(                                    \
+  long   _CL_OVERLOADABLE NAME(double  );       \
+  long2  _CL_OVERLOADABLE NAME(double2 );       \
+  long3  _CL_OVERLOADABLE NAME(double3 );       \
+  long4  _CL_OVERLOADABLE NAME(double4 );       \
+  long8  _CL_OVERLOADABLE NAME(double8 );       \
+  long16 _CL_OVERLOADABLE NAME(double16);)
+#endif

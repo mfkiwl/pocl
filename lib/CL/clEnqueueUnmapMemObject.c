@@ -52,36 +52,43 @@ POname(clEnqueueUnmapMemObject)(cl_command_queue command_queue,
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  HANDLE_IMAGE1D_BUFFER (memobj);
+  POCL_CHECK_DEV_IN_CMDQ;
+
+  POCL_RETURN_ERROR_ON ((memobj->flags & CL_MEM_HOST_NO_ACCESS),
+                        CL_INVALID_OPERATION,
+                        "buffer has been created with "
+                        "CL_MEM_HOST_WRITE_ONLY or CL_MEM_HOST_NO_ACCESS and "
+                        "CL_MAP_READ is set in map_flags\n");
+
+  if (memobj->parent)
+    memobj = memobj->parent;
 
   POCL_LOCK_OBJ (memobj);
   DL_FOREACH (memobj->mappings, mapping)
     {
       POCL_MSG_PRINT_MEMORY (
-          "UnMap %p search Mapping: host_ptr %p offset %zu\n", mapped_ptr,
-          mapping->host_ptr, mapping->offset);
+          "UnMap %p search Mapping: host_ptr %p offset %zu requested: %lu\n", mapped_ptr,
+          mapping->host_ptr, mapping->offset, mapping->unmap_requested);
 
-      if (mapping->host_ptr == mapped_ptr)
+      if (mapping->host_ptr == mapped_ptr && mapping->unmap_requested == 0)
           break;
     }
+  if (mapping)
+    mapping->unmap_requested = 1;
   POCL_UNLOCK_OBJ (memobj);
   POCL_RETURN_ERROR_ON((mapping == NULL), CL_INVALID_VALUE,
       "Could not find mapping of this memobj\n");
 
-  /* find the index of the device's ptr in the buffer */
-  POCL_CHECK_DEV_IN_CMDQ;
-
   errcode = pocl_create_command (&cmd, command_queue, 
-                                 CL_COMMAND_UNMAP_MEM_OBJECT, 
+                                 CL_COMMAND_UNMAP_MEM_OBJECT,
                                  event, num_events_in_wait_list, 
                                  event_wait_list, 1, &memobj);
 
   if (errcode != CL_SUCCESS)
     goto ERROR;
 
-  cmd->command.unmap.data = command_queue->device->data;
-  cmd->command.unmap.memobj = memobj;
   cmd->command.unmap.mapping = mapping;
+  cmd->command.unmap.mem_id = &memobj->device_ptrs[device->dev_id];
 
   POname(clRetainMemObject) (memobj);
   memobj->owning_device = command_queue->device;

@@ -1,6 +1,6 @@
 /* tta_device_main.c - the main program for the tta devices executing ocl kernels
 
-   Copyright (c) 2012 Pekka Jääskeläinen / Tampere University of Technology
+   Copyright (c) 2012-2018 Pekka Jääskeläinen
    
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -34,11 +34,16 @@
 #include <stdio.h>
 #endif
 
+#ifndef __CBUILD__
+#define __CBUILD__
+#endif
 #include "pocl_device.h"
+#include "pocl_context.h"
+#include "pocl_workgroup_func.h"
 
-#define __local__ __attribute__((address_space(0)))
-#define __global__ __attribute__((address_space(3)))
-#define __constant__ __attribute__((address_space(3)))
+#define __local__ __attribute__((address_space(3)))
+#define __global__ __attribute__((address_space(1)))
+#define __constant__ __attribute__((address_space(2)))
 
 typedef volatile __global__ __kernel_exec_cmd kernel_exec_cmd;
 typedef __global__ __kernel_metadata kernel_metadata;
@@ -57,7 +62,7 @@ static void tta_opencl_wg_execute(
     const int num_groups_y = (cmd->work_dim >= 2) ? (cmd->num_groups[1]) : 1;
     const int num_groups_z = (cmd->work_dim == 3) ? (cmd->num_groups[2]) : 1;
 
-    struct pocl_context context;
+    struct pocl_context32 context;
     context.work_dim = cmd->work_dim;
     context.num_groups[0] = cmd->num_groups[0];
     context.num_groups[1] = cmd->num_groups[1];
@@ -69,9 +74,6 @@ static void tta_opencl_wg_execute(
     for (unsigned gid_x = first_gidx; gid_x <= last_gidx; gid_x++) { 
         for (unsigned gid_y = 0; gid_y < num_groups_y; gid_y++) { 
             for (unsigned gid_z = 0; gid_z < num_groups_z; gid_z++) {
-                context.group_id[0] = gid_x;
-                context.group_id[1] = gid_y;
-                context.group_id[2] = gid_z;
 #ifdef DEBUG_TTA_DEVICE
                 lwpr_print_str("tta: ------------------- launching WG ");
                 lwpr_print_int(gid_x); lwpr_print_str("-");
@@ -80,7 +82,9 @@ static void tta_opencl_wg_execute(
                 lwpr_print_int((unsigned)kernel->work_group_func);
                 lwpr_newline();
 #endif
-                kernel->work_group_func (args, &context);
+                ((pocl_workgroup_func32)kernel->work_group_func)(
+		     (uint8_t*)args, (uint8_t*)&context,
+		     gid_x, gid_y, gid_z);
             } 
         }
     }

@@ -1,6 +1,7 @@
 /* OpenCL runtime library: clCreateProgramWithBuiltInKernels()
 
-   Copyright (c) 2017 Michal Babej / Tampere University of Technology
+   Copyright (c) 2017 Michal Babej / Tampere University
+                 2019 Pekka Jääskeläinen / Tampere University
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +24,9 @@
 
 #include "pocl_cl.h"
 #include "pocl_shared.h"
+#include "pocl_util.h"
+
+#include <string.h>
 
 CL_API_ENTRY cl_program CL_API_CALL
 POname (clCreateProgramWithBuiltInKernels) (cl_context context,
@@ -32,19 +36,67 @@ POname (clCreateProgramWithBuiltInKernels) (cl_context context,
                                             cl_int *errcode_ret)
 CL_API_SUFFIX__VERSION_1_2
 {
-  int errcode;
-  POCL_GOTO_ERROR_COND ((context == NULL), CL_INVALID_CONTEXT);
-
-  POCL_GOTO_ERROR_COND ((device_list == NULL), CL_INVALID_VALUE);
-  POCL_GOTO_ERROR_COND ((num_devices == 0), CL_INVALID_VALUE);
+  cl_int errcode;
+  char *kernel_names_copy = NULL;
+  cl_program program = NULL;
+  char **builtin_names = NULL;
+  size_t num_kernels = 0;
+  char *save_ptr;
+  char *token;
 
   POCL_GOTO_ERROR_COND ((kernel_names == NULL), CL_INVALID_VALUE);
 
-  POCL_GOTO_ERROR_ON (1, CL_INVALID_VALUE,
-                      "Builtin kernels are currently"
-                      " not implemented for any device\n");
+  kernel_names_copy = strdup (kernel_names);
+  token = strtok_r (kernel_names_copy, ";", &save_ptr);
+  while (token != NULL)
+    {
+      unsigned num_supported = 0;
+      cl_uint i;
+      for (i = 0; i < num_devices; ++i)
+        {
+          cl_device_id dev = device_list[i];
+          if (dev->ops->supports_builtin_kernel == NULL)
+            continue;
+          if (dev->ops->supports_builtin_kernel (dev->data, token))
+            ++num_supported;
+        }
+      POCL_GOTO_ERROR_ON ((num_supported == 0), CL_INVALID_VALUE,
+                          "None of the devices in context supports this"
+                          " builtin kernel!\n");
+      ++num_kernels;
+      token = strtok_r (NULL, ";", &save_ptr);
+    }
+  POCL_MEM_FREE (kernel_names_copy);
+
+  builtin_names = (char **)calloc (num_kernels, sizeof (char *));
+  POCL_GOTO_ERROR_COND ((builtin_names == NULL), CL_OUT_OF_HOST_MEMORY);
+
+  kernel_names_copy = strdup (kernel_names);
+  token = strtok_r (kernel_names_copy, ";", &save_ptr);
+  unsigned i;
+  for (i = 0; token != NULL; ++i)
+    {
+      builtin_names[i] = strdup (token);
+      token = strtok_r (NULL, ";", &save_ptr);
+    }
+  POCL_MEM_FREE (kernel_names_copy);
+
+  program = create_program_skeleton (context, num_devices, device_list, NULL,
+                                     NULL, NULL, &errcode, 1);
+  if (program == NULL)
+    goto ERROR;
+
+  program->num_builtin_kernels = num_kernels;
+  program->builtin_kernel_names = builtin_names;
+
+  if (errcode_ret != NULL)
+    *errcode_ret = CL_SUCCESS;
+
+  return program;
 
 ERROR:
+  POCL_MEM_FREE (kernel_names_copy);
+  POCL_MEM_FREE (builtin_names);
   if (errcode_ret)
     *errcode_ret = errcode;
   return NULL;

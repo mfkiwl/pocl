@@ -22,11 +22,31 @@
  **/
 
 #include "pocl_cl.h"
+#include "pocl_llvm.h"
+#include "pocl_shared.h"
 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clUnloadPlatformCompiler)(cl_platform_id platform)
 CL_API_SUFFIX__VERSION_1_2
 {
+#if defined(OCS_AVAILABLE)
+  cl_platform_id pocl_id;
+  POname (clGetPlatformIDs) (1, &pocl_id, NULL);
+  if (platform == pocl_id)
+    {
+      pocl_llvm_release ();
+    }
+  else
+    {
+      POCL_MSG_WARN (
+          "clUnloadPlatformCompiler called with non-pocl platform! \n");
+      return CL_INVALID_PLATFORM;
+    }
+#else
+  POCL_MSG_WARN (
+      "clUnloadPlatformCompiler called with LLVM-less build of pocl! \n");
+#endif
+  pocl_check_uninit_devices ();
   return CL_SUCCESS;
 }
 POsym(clUnloadPlatformCompiler)

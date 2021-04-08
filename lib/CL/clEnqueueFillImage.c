@@ -21,10 +21,11 @@
    THE SOFTWARE.
 */
 
+#include <CL/cl.h>
+#include <string.h>
+
 #include "pocl_util.h"
 #include "pocl_image_util.h"
-#include "cl_platform.h"
-#include <string.h>
 
 extern CL_API_ENTRY cl_int CL_API_CALL
 POname(clEnqueueFillImage)(cl_command_queue  command_queue,
@@ -43,9 +44,6 @@ CL_API_SUFFIX__VERSION_1_2
 
   POCL_RETURN_ERROR_COND((command_queue == NULL), CL_INVALID_COMMAND_QUEUE);
 
-  POCL_RETURN_ERROR_ON((!command_queue->device->image_support), CL_INVALID_OPERATION,
-    "Device %s does not support images\n", command_queue->device->long_name);
-
   POCL_RETURN_ERROR_COND((image == NULL), CL_INVALID_MEM_OBJECT);
   POCL_RETURN_ERROR_COND((origin == NULL), CL_INVALID_VALUE);
   POCL_RETURN_ERROR_COND((region == NULL), CL_INVALID_VALUE);
@@ -54,12 +52,9 @@ CL_API_SUFFIX__VERSION_1_2
   POCL_RETURN_ERROR_ON((command_queue->context != image->context), CL_INVALID_CONTEXT,
       "image and command_queue are not from the same context\n");
 
-  POCL_RETURN_ERROR_ON((!image->is_image), CL_INVALID_MEM_OBJECT,
-                                                "image argument is not an image\n");
-
-  POCL_RETURN_ERROR_COND (
-      (image->flags & (CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)),
-      CL_INVALID_OPERATION);
+  POCL_RETURN_ERROR_ON ((!image->is_image), CL_INVALID_MEM_OBJECT,
+                        "image argument is not an image\n");
+  POCL_RETURN_ON_UNSUPPORTED_IMAGE (image, command_queue->device);
 
   errcode = pocl_check_event_wait_list (command_queue, num_events_in_wait_list,
                                         event_wait_list);
@@ -95,31 +90,42 @@ CL_API_SUFFIX__VERSION_1_2
                          image->image_elem_size,
                          image->image_channel_data_type);
 
-  errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_FILL_IMAGE, 
-                                 event, num_events_in_wait_list, 
+  size_t px = image->image_elem_size * image->image_channels;
+
+  if (IS_IMAGE1D_BUFFER (image))
+    {
+      return POname (clEnqueueFillBuffer) (
+          command_queue,
+          image->buffer,
+          fill_pixel, 16,
+          origin[0] * px,
+          region[0] * px,
+          num_events_in_wait_list, event_wait_list, event);
+    }
+
+  errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_FILL_IMAGE,
+                                 event, num_events_in_wait_list,
                                  event_wait_list, 1, &image);
   if (errcode != CL_SUCCESS)
     goto ERROR_CLEAN;
 
-  cmd->command.fill_image.rowpitch = image->image_row_pitch;
-  cmd->command.fill_image.slicepitch = image->image_slice_pitch;
   cmd->command.fill_image.fill_pixel = fill_pixel;
-  cmd->command.fill_image.pixel_size
-      = image->image_elem_size * image->image_channels;
+  cmd->command.fill_image.pixel_size = px;
 
-  HANDLE_IMAGE1D_BUFFER (image);
+  cmd->command.fill_image.mem_id
+      = &image->device_ptrs[command_queue->device->dev_id];
 
-  cmd->command.fill_image.data = command_queue->device->data;
-  cmd->command.fill_image.device_ptr = 
-    image->device_ptrs[command_queue->device->dev_id].mem_ptr;
-  memcpy (&(cmd->command.fill_image.buffer_origin), origin, 
-          3*sizeof(size_t));
-  memcpy (&(cmd->command.fill_image.region), region, 3*sizeof(size_t));
+  cmd->command.fill_image.origin[0] = origin[0];
+  cmd->command.fill_image.origin[1] = origin[1];
+  cmd->command.fill_image.origin[2] = origin[2];
+  cmd->command.fill_image.region[0] = region[0];
+  cmd->command.fill_image.region[1] = region[1];
+  cmd->command.fill_image.region[2] = region[2];
 
   POname(clRetainMemObject) (image);
   image->owning_device = command_queue->device;
   pocl_command_enqueue(command_queue, cmd);
-  
+
   return errcode;
   
  ERROR_CLEAN:

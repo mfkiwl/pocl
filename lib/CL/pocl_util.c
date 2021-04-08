@@ -1,6 +1,6 @@
 /* OpenCL runtime library: pocl_util utility functions
 
-   Copyright (c) 2012 Pekka Jääskeläinen / Tampere University of Technology
+   Copyright (c) 2012-2019 Pekka Jääskeläinen
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -43,12 +43,18 @@
 #endif
 
 #include "pocl_util.h"
+#include "pocl_timing.h"
 #include "pocl_llvm.h"
 #include "utlist.h"
 #include "common.h"
 #include "pocl_mem_management.h"
 #include "devices.h"
 #include "pocl_runtime_config.h"
+
+/* required for setting SSE/AVX flush denorms to zero flag */
+#if defined(__x86_64__) && defined(__GNUC__)
+#include <x86intrin.h>
+#endif
 
 struct list_item;
 
@@ -57,6 +63,108 @@ typedef struct list_item
   void *value;
   struct list_item *next;
 } list_item;
+
+void
+pocl_restore_ftz (unsigned ftz)
+{
+#if defined(__x86_64__) && defined(__GNUC__)
+
+#ifdef _MM_FLUSH_ZERO_ON
+  if (ftz & _MM_FLUSH_ZERO_ON)
+    _MM_SET_FLUSH_ZERO_MODE (_MM_FLUSH_ZERO_ON);
+  else
+    _MM_SET_FLUSH_ZERO_MODE (_MM_FLUSH_ZERO_OFF);
+#endif
+#ifdef _MM_DENORMALS_ZERO_ON
+  if (ftz & _MM_DENORMALS_ZERO_ON)
+    _MM_SET_DENORMALS_ZERO_MODE (_MM_DENORMALS_ZERO_ON);
+  else
+    _MM_SET_DENORMALS_ZERO_MODE (_MM_DENORMALS_ZERO_OFF);
+#endif
+
+#endif
+}
+
+unsigned
+pocl_save_ftz ()
+{
+#if defined(__x86_64__) && defined(__GNUC__)
+
+  unsigned s = 0;
+#ifdef _MM_FLUSH_ZERO_ON
+  if (_MM_GET_FLUSH_ZERO_MODE ())
+    s |= _MM_FLUSH_ZERO_ON;
+  else
+    s &= (~_MM_FLUSH_ZERO_ON);
+#endif
+#ifdef _MM_DENORMALS_ZERO_ON
+  if (_MM_GET_DENORMALS_ZERO_MODE ())
+    s |= _MM_DENORMALS_ZERO_ON;
+  else
+    s &= (~_MM_DENORMALS_ZERO_ON);
+#endif
+  return s;
+
+#else
+  return 0;
+#endif
+}
+
+void
+pocl_set_ftz (unsigned ftz)
+{
+#if defined(__x86_64__) && defined(__GNUC__)
+  if (ftz)
+    {
+#ifdef _MM_FLUSH_ZERO_ON
+      _MM_SET_FLUSH_ZERO_MODE (_MM_FLUSH_ZERO_ON);
+#endif
+
+#ifdef _MM_DENORMALS_ZERO_ON
+      _MM_SET_DENORMALS_ZERO_MODE (_MM_DENORMALS_ZERO_ON);
+#endif
+    }
+  else
+    {
+#ifdef _MM_FLUSH_ZERO_OFF
+      _MM_SET_FLUSH_ZERO_MODE (_MM_FLUSH_ZERO_OFF);
+#endif
+
+#ifdef _MM_DENORMALS_ZERO_OFF
+      _MM_SET_DENORMALS_ZERO_MODE (_MM_DENORMALS_ZERO_OFF);
+#endif
+    }
+#endif
+}
+
+
+void
+pocl_set_default_rm ()
+{
+#if defined(__x86_64__) && defined(__GNUC__) && defined(_MM_ROUND_NEAREST)
+  unsigned rm = _MM_GET_ROUNDING_MODE ();
+  if (rm != _MM_ROUND_NEAREST)
+    _MM_SET_ROUNDING_MODE (_MM_ROUND_NEAREST);
+#endif
+}
+
+unsigned
+pocl_save_rm ()
+{
+#if defined(__x86_64__) && defined(__GNUC__) && defined(_MM_ROUND_NEAREST)
+  return _MM_GET_ROUNDING_MODE ();
+#else
+  return 0;
+#endif
+}
+
+void
+pocl_restore_rm (unsigned rm)
+{
+#if defined(__x86_64__) && defined(__GNUC__) && defined(_MM_ROUND_NEAREST)
+  _MM_SET_ROUNDING_MODE (rm);
+#endif
+}
 
 uint32_t
 byteswap_uint32_t (uint32_t word, char should_swap)
@@ -113,18 +221,54 @@ pocl_size_ceil2(size_t x) {
   return ++x;
 }
 
-#ifndef HAVE_ALIGNED_ALLOC
+uint64_t
+pocl_size_ceil2_64 (uint64_t x)
+{
+  /* Rounds up to the next highest power of two without branching and
+   * is as fast as a BSR instruction on x86, see:
+   *
+   * http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+   */
+  --x;
+  x |= x >> 1;
+  x |= x >> 2;
+  x |= x >> 4;
+  x |= x >> 8;
+  x |= x >> 16;
+  x |= x >> 32;
+  return ++x;
+}
+
+static void*
+pocl_memalign_alloc(size_t align_width, size_t size)
+{
+  void *ptr;
+  int status;
+
+#ifdef __ANDROID__
+  ptr = memalign (align_width, size);
+  return ptr;
+#elif defined(HAVE_POSIX_MEMALIGN)
+  status = posix_memalign (&ptr, align_width, size);
+  return ((status == 0) ? ptr : NULL);
+#elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+  return aligned_alloc (align_width, size);
+#else
+#error Cannot find aligned malloc
+#endif
+}
+
 void *
 pocl_aligned_malloc (size_t alignment, size_t size)
 {
-# ifdef HAVE_POSIX_MEMALIGN
-
+#ifdef HAVE_ALIGNED_ALLOC
+  assert (alignment > 0);
   /* make sure that size is a multiple of alignment, as posix_memalign
    * does not perform this test, whereas aligned_alloc does */
   if ((size & (alignment - 1)) != 0)
     {
-      errno = EINVAL;
-      return NULL;
+      size = size | (alignment - 1);
+      size += 1;
     }
 
   /* posix_memalign requires alignment to be at least sizeof(void *) */
@@ -142,8 +286,14 @@ pocl_aligned_malloc (size_t alignment, size_t size)
 
   return result;
 
-# else
+#else
+#error Cannot find aligned malloc
+#endif
 
+#if 0
+  /* this code works in theory, but there many places in pocl
+   * where aligned memory is used in the same pointers
+   * as memory allocated by other means */
   /* allow zero-sized allocations, force alignment to 1 */
   if (!size)
     alignment = 1;
@@ -171,29 +321,65 @@ pocl_aligned_malloc (size_t alignment, size_t size)
 
 #endif
 }
-#endif
 
-#if !defined HAVE_ALIGNED_ALLOC && !defined HAVE_POSIX_MEMALIGN
+#if 0
 void
 pocl_aligned_free (void *ptr)
 {
+#ifdef HAVE_ALIGNED_ALLOC
+  POCL_MEM_FREE (ptr);
+#else
+#error Cannot find aligned malloc
   /* extract pointer from original allocation and free it */
   if (ptr)
     free(*(void **)((uintptr_t)ptr - sizeof(void *)));
+#endif
 }
 #endif
 
+void
+pocl_lock_events_inorder (cl_event ev1, cl_event ev2)
+{
+  assert (ev1 != ev2);
+  assert (ev1->id != ev2->id);
+  if (ev1->id < ev2->id)
+    {
+      POCL_LOCK_OBJ (ev1);
+      POCL_LOCK_OBJ (ev2);
+    }
+  else
+    {
+      POCL_LOCK_OBJ (ev2);
+      POCL_LOCK_OBJ (ev1);
+    }
+}
+
+void
+pocl_unlock_events_inorder (cl_event ev1, cl_event ev2)
+{
+  assert (ev1 != ev2);
+  assert (ev1->id != ev2->id);
+  if (ev1->id < ev2->id)
+    {
+      POCL_UNLOCK_OBJ (ev1);
+      POCL_UNLOCK_OBJ (ev2);
+    }
+  else
+    {
+      POCL_UNLOCK_OBJ (ev2);
+      POCL_UNLOCK_OBJ (ev1);
+    }
+}
 
 cl_int pocl_create_event (cl_event *event, cl_command_queue command_queue, 
-                          cl_command_type command_type, int num_buffers,
+                          cl_command_type command_type, size_t num_buffers,
                           const cl_mem *buffers, cl_context context)
 {
   static unsigned int event_id_counter = 0;
 
-  POCL_MSG_PRINT_EVENTS ("creating event\n");
-
   if (context == NULL || !(context->valid))
     return CL_INVALID_CONTEXT;
+
   if (event != NULL)
     {
       *event = pocl_mem_manager_new_event ();
@@ -209,60 +395,47 @@ cl_int pocl_create_event (cl_event *event, cl_command_queue command_queue,
         POname(clRetainCommandQueue) (command_queue);
 
       (*event)->command_type = command_type;
-      (*event)->command =  NULL;
-      (*event)->callback_list = NULL;
-      (*event)->id = event_id_counter++;
-      (*event)->notify_list = NULL;
-      (*event)->wait_list = NULL;
-      (*event)->data = NULL;
+      (*event)->id = POCL_ATOMIC_INC (event_id_counter);
       (*event)->num_buffers = num_buffers;
+
+      POCL_MSG_PRINT_EVENTS ("created event with id %d\n", (*event)->id);
+
       if (num_buffers > 0)
         {
           (*event)->mem_objs = malloc (num_buffers * sizeof(cl_mem));
           memcpy ((*event)->mem_objs, buffers, num_buffers * sizeof(cl_mem));
         }
-      else
-        (*event)->mem_objs = NULL;
       (*event)->status = CL_QUEUED;
-      (*event)->implicit_event = 0;
-      (*event)->next = NULL;
-      (*event)->prev = NULL;
-
-      /* user events do not have cq */
-      if (!command_queue)
-        return CL_SUCCESS;
-
     }
+
   return CL_SUCCESS;
 }
 
 static int
-pocl_create_event_sync(cl_event waiting_event,
-                       cl_event notifier_event, cl_mem mem)
+pocl_create_event_sync (cl_event waiting_event, cl_event notifier_event)
 {
   event_node * volatile notify_target = NULL;
   event_node * volatile wait_list_item = NULL;
-  assert(notifier_event->pocl_refcount != 0);
-  POCL_MSG_PRINT_INFO("create event sync: waiting %d, notifier %d\n", waiting_event->id, notifier_event->id);
-  if (waiting_event == notifier_event)
-    {
-      printf("waiting id %d, notifier id = %d\n", waiting_event->id, 
-             notifier_event->id);
-      assert(waiting_event != notifier_event);
-    }
+
+  if (notifier_event == NULL)
+    return CL_SUCCESS;
+
+  POCL_MSG_PRINT_EVENTS ("create event sync: waiting %d, notifier %d\n",
+                         waiting_event->id, notifier_event->id);
+
+  pocl_lock_events_inorder (waiting_event, notifier_event);
+
+  assert (notifier_event->pocl_refcount != 0);
+  assert (waiting_event != notifier_event);
+
   LL_FOREACH (waiting_event->wait_list, wait_list_item)
     {
       if (wait_list_item->event == notifier_event)
-        return CL_SUCCESS;
-    }
-  POCL_LOCK_OBJ (waiting_event);
-
-  if (notifier_event == NULL || notifier_event->status == CL_COMPLETE)
-    {
-      POCL_UNLOCK_OBJ (waiting_event);
-      return CL_SUCCESS;
+        goto FINISH;
     }
 
+  if (notifier_event->status == CL_COMPLETE)
+    goto FINISH;
   notify_target = pocl_mem_manager_new_event_node();
   wait_list_item = pocl_mem_manager_new_event_node();
   if (!notify_target || !wait_list_item)
@@ -272,21 +445,22 @@ pocl_create_event_sync(cl_event waiting_event,
   wait_list_item->event = notifier_event;
   LL_PREPEND (notifier_event->notify_list, notify_target);
   LL_PREPEND (waiting_event->wait_list, wait_list_item);
-  POCL_UNLOCK_OBJ (waiting_event);
 
+FINISH:
+  pocl_unlock_events_inorder (waiting_event, notifier_event);
   return CL_SUCCESS;
 }
 
 cl_int pocl_create_command (_cl_command_node **cmd,
-                            cl_command_queue command_queue, 
-                            cl_command_type command_type, cl_event *event_p, 
+                            cl_command_queue command_queue,
+                            cl_command_type command_type, cl_event *event_p,
                             cl_int num_events, const cl_event *wait_list,
-                            int num_buffers, const cl_mem *buffers)
+                            size_t num_buffers, const cl_mem *buffers)
 {
   int i;
   int err;
   cl_event *event = NULL;
-  
+
   if ((wait_list == NULL && num_events != 0) ||
       (wait_list != NULL && num_events == 0))
     {
@@ -306,10 +480,10 @@ cl_int pocl_create_command (_cl_command_node **cmd,
 
   (*cmd)->type = command_type;
 
-  /* Even if user does not provide event pointer, create event anyway */
+  /* If user does not provide an event pointer, create an implicit one. */
   event = &((*cmd)->event);
-  err = pocl_create_event(event, command_queue, 0, num_buffers, 
-                          buffers, command_queue->context);
+  err = pocl_create_event (event, command_queue, 0, num_buffers, buffers,
+                           command_queue->context);
 
   if (err != CL_SUCCESS)
     {
@@ -333,61 +507,53 @@ cl_int pocl_create_command (_cl_command_node **cmd,
       (*event)->pocl_refcount = 1;
     }
 
-  (*cmd)->next = NULL;
-  (*cmd)->prev = NULL;
   (*cmd)->device = command_queue->device;
   (*cmd)->event->command = (*cmd);
-  (*cmd)->ready = 0;
 
-  /* in case of in-order queue, synchronize to previously enqueued command
-     if available */
-  if (!(command_queue->properties & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE))
-    {
-      POCL_LOCK_OBJ (command_queue);
-      if (command_queue->last_event.event)
-        {
-          POCL_LOCK_OBJ (command_queue->last_event.event);
-          pocl_create_event_sync ((*cmd)->event,
-                                  command_queue->last_event.event,
-                                  NULL);
-          POCL_UNLOCK_OBJ (command_queue->last_event.event);
-        }
-      POCL_UNLOCK_OBJ (command_queue);
-    }
   /* Form event synchronizations based on the given wait list */
   for (i = 0; i < num_events; ++i)
     {
       cl_event wle = wait_list[i];
-      POCL_LOCK_OBJ (wle);
-      pocl_create_event_sync ((*cmd)->event, wle, NULL);
-      POCL_UNLOCK_OBJ (wle);
+      pocl_create_event_sync ((*cmd)->event, wle);
     }
   POCL_MSG_PRINT_EVENTS ("Created command struct (event %d, type %X)\n",
                          (*cmd)->event->id, command_type);
   return CL_SUCCESS;
 }
 
+/* call with node->event UNLOCKED */
 void pocl_command_enqueue (cl_command_queue command_queue,
                           _cl_command_node *node)
 {
   cl_event event;
 
   POCL_LOCK_OBJ (node->event);
-  assert(node->event->status == CL_QUEUED);
-  POCL_UNLOCK_OBJ (node->event);
-
+  assert (node->event->status == CL_QUEUED);
   assert (command_queue == node->event->queue);
+  POCL_UNLOCK_OBJ (node->event);
 
   POCL_LOCK_OBJ (command_queue);
   ++command_queue->command_count;
-  if ((node->type == CL_COMMAND_BARRIER || node->type == CL_COMMAND_MARKER) &&
-      node->command.barrier.has_wait_list == 0)
+  /* in case of in-order queue, synchronize to previously enqueued command
+     if available */
+  if (!(command_queue->properties & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE))
+    {
+      if (command_queue->last_event.event)
+        {
+          pocl_create_event_sync (node->event,
+                                  command_queue->last_event.event);
+        }
+    }
+  /* Command queue is out-of-order queue. If command type is a barrier, then
+     synchronize to all previously enqueued commands to make sure they are
+     executed before the barrier. */
+  else if ((node->type == CL_COMMAND_BARRIER
+            || node->type == CL_COMMAND_MARKER)
+           && node->command.barrier.has_wait_list == 0)
     {
       DL_FOREACH (command_queue->events, event)
         {
-          POCL_LOCK_OBJ(event);
-          pocl_create_event_sync (node->event, event, NULL);
-          POCL_UNLOCK_OBJ (event);
+          pocl_create_event_sync (node->event, event);
         }
     }
   if (node->type == CL_COMMAND_BARRIER)
@@ -396,26 +562,23 @@ void pocl_command_enqueue (cl_command_queue command_queue,
     {
       if (command_queue->barrier)
         {
-          POCL_LOCK_OBJ(command_queue->barrier);
-          pocl_create_event_sync (node->event, command_queue->barrier, NULL);
-          POCL_UNLOCK_OBJ (command_queue->barrier);
+          pocl_create_event_sync (node->event, command_queue->barrier);
         }
     }
   DL_APPEND (command_queue->events, node->event);
+
+  POCL_MSG_PRINT_EVENTS ("Last event id %d to CQ.\n", node->event->id);
   command_queue->last_event.event = node->event;
-  command_queue->last_event.event_id = node->event->id;
   POCL_UNLOCK_OBJ (command_queue);
 
-  POCL_UPDATE_EVENT_QUEUED (&node->event);
-
+  POCL_LOCK_OBJ (node->event);
+  pocl_update_event_queued (node->event);
   command_queue->device->ops->submit(node, command_queue);
-#ifdef POCL_DEBUG_BUILD
-  if (pocl_is_option_set("POCL_IMPLICIT_FINISH"))
-    POclFinish (command_queue);
-#endif
+  /* node->event is unlocked by device_ops->submit */
+
 }
 
-
+/* call (and return) with node->event locked */
 void
 pocl_command_push (_cl_command_node *node, 
                    _cl_command_node *volatile *ready_list, 
@@ -431,36 +594,15 @@ pocl_command_push (_cl_command_node *node,
       CDL_PREPEND ((*pending_list), node);
       return;
     }
-  POCL_LOCK_OBJ (node->event);
   if (pocl_command_is_ready(node->event))
     {
+      pocl_update_event_submitted (node->event);
       CDL_PREPEND ((*ready_list), node);
     }
   else
     {
       CDL_PREPEND ((*pending_list), node);
     }
-  POCL_UNLOCK_OBJ (node->event);
-}
-
-int pocl_update_command_queue (cl_event event)
-{
-  int cq_ready;
-
-  POCL_LOCK_OBJ (event->queue);
-  --event->queue->command_count;
-  if (event->queue->barrier == event)
-    event->queue->barrier = NULL;
-
-  if (event->queue->last_event.event == event)
-    event->queue->last_event.event = NULL;
-  assert (event->queue->command_count >= 0);
-
-  DL_DELETE (event->queue->events, event);
-
-  cq_ready = (event->queue->command_count) ? 0: 1;
-  POCL_UNLOCK_OBJ (event->queue);
-  return cq_ready;
 }
 
 void
@@ -497,26 +639,6 @@ pocl_cl_mem_inherit_flags (cl_mem mem, cl_mem from_buffer, cl_mem_flags flags)
   mem->flags = mem->flags | (from_buffer->flags & CL_MEM_USE_HOST_PTR)
                | (from_buffer->flags & CL_MEM_ALLOC_HOST_PTR)
                | (from_buffer->flags & CL_MEM_COPY_HOST_PTR);
-}
-
-cl_int pocl_update_mem_obj_sync (cl_command_queue cq, _cl_command_node *cmd, 
-                                 cl_mem mem, char operation)
-{
-  int i;
-  POCL_LOCK_OBJ (mem);
-  mem->owning_device = cmd->device;
-  mem->latest_event = cmd->event;
-  POCL_UNLOCK_OBJ (mem);
-
-  for (i = 0; i < cmd->event->num_buffers; ++i)
-    {
-      if (cmd->event->mem_objs[i] == NULL)
-        {
-          cmd->event->mem_objs[i] = mem;
-          break;
-        }
-    }
-  return CL_SUCCESS;
 }
 
 int pocl_buffer_boundcheck(cl_mem buffer, size_t offset, size_t size) {
@@ -573,7 +695,7 @@ int pocl_buffer_boundcheck_3d(const size_t buffer_size,
 
   POCL_RETURN_ERROR_ON((byte_offset_begin > buffer_size), CL_INVALID_VALUE,
             "%sorigin is outside the %sbuffer", prefix, prefix);
-  POCL_RETURN_ERROR_ON((byte_offset_end > buffer_size), CL_INVALID_VALUE,
+  POCL_RETURN_ERROR_ON((byte_offset_end >= buffer_size), CL_INVALID_VALUE,
             "%sorigin+region is outside the %sbuffer", prefix, prefix);
   return CL_SUCCESS;
 }
@@ -773,20 +895,90 @@ cl_device_id * pocl_unique_device_list(const cl_device_id * in, cl_uint num, cl_
   return out;
 }
 
-/* Setup certain info about context that comes up later in API calls */
-void pocl_setup_context(cl_context context)
+static void
+image_format_union (const cl_image_format *dev_formats,
+                    cl_uint               num_dev_formats,
+                    cl_image_format       **context_formats,
+                    cl_uint               *num_context_formats)
 {
-  unsigned i;
-  context->min_max_mem_alloc_size = SIZE_MAX;
+  if ((dev_formats == NULL) || (num_dev_formats == 0))
+    return;
+
+  if ((*num_context_formats == 0) || (*context_formats == NULL))
+    {
+      // alloc & copy
+      *context_formats = malloc (sizeof (cl_image_format) * num_dev_formats);
+      memcpy (*context_formats, dev_formats,
+              sizeof (cl_image_format) * num_dev_formats);
+      *num_context_formats = num_dev_formats;
+    }
+  else
+    {
+      // realloc & merge
+      cl_uint i, j;
+      cl_uint ncf = *num_context_formats;
+      size_t size = sizeof (cl_image_format) * (num_dev_formats + ncf);
+      cl_image_format *ctf
+          = realloc (*context_formats, size );
+      assert (ctf);
+      for (i = 0; i < num_dev_formats; ++i)
+        {
+          for (j = 0; j < ncf; ++j)
+            if (memcmp (ctf + j, dev_formats + i, sizeof (cl_image_format))
+                == 0)
+              break;
+          if (j < ncf)
+            {
+              // format already in context, skip
+              continue;
+            }
+          else
+            {
+              memcpy (ctf + ncf, dev_formats + i, sizeof (cl_image_format));
+              ++ncf;
+            }
+        }
+      *context_formats = ctf;
+      *num_context_formats = ncf;
+    }
+}
+
+/* Setup certain info about context that comes up later in API calls */
+void
+pocl_setup_context (cl_context context)
+{
+  unsigned i, j;
+  size_t alignment = context->devices[0]->mem_base_addr_align;
+  context->max_mem_alloc_size = 0;
   context->svm_allocdev = NULL;
+
+  memset (context->image_formats, 0, sizeof (void *) * NUM_OPENCL_IMAGE_TYPES);
+  memset (context->num_image_formats, 0,
+          sizeof (cl_uint) * NUM_OPENCL_IMAGE_TYPES);
+
   for(i=0; i<context->num_devices; i++)
     {
       if (context->devices[i]->should_allocate_svm)
         context->svm_allocdev = context->devices[i];
-      if (context->devices[i]->max_mem_alloc_size < context->min_max_mem_alloc_size)
-        context->min_max_mem_alloc_size =
+
+      if (context->devices[i]->mem_base_addr_align < alignment)
+        alignment = context->devices[i]->mem_base_addr_align;
+
+      if (context->devices[i]->max_mem_alloc_size
+          > context->max_mem_alloc_size)
+        context->max_mem_alloc_size =
             context->devices[i]->max_mem_alloc_size;
+
+      if (context->devices[i]->image_support == CL_TRUE)
+        {
+          for (j = 0; j < NUM_OPENCL_IMAGE_TYPES; ++j)
+            image_format_union (
+                context->devices[i]->image_formats[j],
+                context->devices[i]->num_image_formats[j],
+                &context->image_formats[j], &context->num_image_formats[j]);
+        }
     }
+
   if (context->svm_allocdev == NULL)
     for(i=0; i<context->num_devices; i++)
       if (DEVICE_IS_SVM_CAPABLE(context->devices[i]))
@@ -794,6 +986,8 @@ void pocl_setup_context(cl_context context)
           context->svm_allocdev = context->devices[i];
           break;
         }
+
+  context->min_buffer_alignment = alignment;
 }
 
 int
@@ -834,8 +1028,17 @@ pocl_status_to_str (int status)
   "submitted",
   "queued"};
   return status_to_str[status];
-};
+}
 
+void
+pocl_abort_on_pthread_error (int status, unsigned line, const char *func)
+{
+  if (status != 0)
+    {
+      POCL_MSG_PRINT2 (HSA, func, line, "Error from pthread call:\n");
+      POCL_ABORT ("%s\n", strerror (status));
+    }
+}
 
 /* Convert a command type to its representation string
  */
@@ -952,6 +1155,144 @@ pocl_run_command (char *const *args)
       else
         return EXIT_FAILURE;
     }
+}
+
+// event locked
+void
+pocl_update_event_queued (cl_event event)
+{
+  assert (event != NULL);
+
+  event->status = CL_QUEUED;
+  cl_command_queue cq = event->queue;
+  if ((cq->properties & CL_QUEUE_PROFILING_ENABLE)
+      && (cq->device->has_own_timer == 0))
+    event->time_queue = pocl_gettimemono_ns ();
+
+  if (cq->device->ops->update_event)
+    cq->device->ops->update_event (cq->device, event);
+  pocl_event_updated (event, CL_QUEUED);
+}
+
+// event locked
+void
+pocl_update_event_submitted (cl_event event)
+{
+  assert (event != NULL);
+  assert (event->status == CL_QUEUED);
+
+  cl_command_queue cq = event->queue;
+  event->status = CL_SUBMITTED;
+  if ((cq->properties & CL_QUEUE_PROFILING_ENABLE)
+      && (cq->device->has_own_timer == 0))
+    event->time_submit = pocl_gettimemono_ns ();
+
+  if (cq->device->ops->update_event)
+    cq->device->ops->update_event (cq->device, event);
+  pocl_event_updated (event, CL_SUBMITTED);
+}
+
+void
+pocl_update_event_running_unlocked (cl_event event)
+{
+  assert (event != NULL);
+  assert (event->status == CL_SUBMITTED);
+
+  cl_command_queue cq = event->queue;
+  event->status = CL_RUNNING;
+  if ((cq->properties & CL_QUEUE_PROFILING_ENABLE)
+      && (cq->device->has_own_timer == 0))
+    event->time_start = pocl_gettimemono_ns ();
+
+  if (cq->device->ops->update_event)
+    cq->device->ops->update_event (cq->device, event);
+  pocl_event_updated (event, CL_RUNNING);
+}
+
+void
+pocl_update_event_running (cl_event event)
+{
+  POCL_LOCK_OBJ (event);
+  pocl_update_event_running_unlocked (event);
+  POCL_UNLOCK_OBJ (event);
+}
+
+// status can be complete or failed (<0)
+void
+pocl_update_event_finished_msg (cl_int status, const char *func, unsigned line,
+                                cl_event event, const char *msg)
+{
+  assert (event != NULL);
+  assert (event->queue != NULL);
+  assert (event->status > CL_COMPLETE);
+
+  cl_command_queue cq = event->queue;
+  POCL_LOCK_OBJ (cq);
+  POCL_LOCK_OBJ (event);
+  if ((cq->properties & CL_QUEUE_PROFILING_ENABLE)
+      && (cq->device->has_own_timer == 0))
+    event->time_end = pocl_gettimemono_ns ();
+
+  struct pocl_device_ops *ops = cq->device->ops;
+  event->status = status;
+  if (cq->device->ops->update_event)
+    ops->update_event (cq->device, event);
+
+  if (status == CL_COMPLETE)
+    POCL_MSG_PRINT_EVENTS ("%s: Command complete, event %d\n",
+                           cq->device->short_name, event->id);
+  else
+    POCL_MSG_PRINT_EVENTS ("%s: Command FAILED, event %d\n",
+                           cq->device->short_name, event->id);
+
+  pocl_mem_objs_cleanup (event);
+
+  --cq->command_count;
+  assert (cq->command_count >= 0);
+  if (cq->barrier == event)
+    cq->barrier = NULL;
+  if (cq->last_event.event == event)
+    cq->last_event.event = NULL;
+  DL_DELETE (cq->events, event);
+
+  if (ops->notify_cmdq_finished && (cq->command_count == 0))
+    ops->notify_cmdq_finished (cq);
+
+  if (ops->notify_event_finished)
+    ops->notify_event_finished (event);
+
+  POCL_UNLOCK_OBJ (cq);
+  /* note that we must unlock the CmqQ before calling pocl_event_updated,
+   * because it calls event callbacks, which can have calls to
+   * clEnqueueSomething() */
+  pocl_event_updated (event, status);
+  POCL_UNLOCK_OBJ (event);
+  ops->broadcast (event);
+
+#ifdef POCL_DEBUG_MESSAGES
+  if (msg != NULL)
+    {
+      pocl_debug_print_duration (
+          func, line, msg, (uint64_t) (event->time_end - event->time_start));
+    }
+#endif
+
+  POname (clReleaseEvent) (event);
+}
+
+void
+pocl_update_event_failed (cl_event event)
+{
+  POCL_UNLOCK_OBJ (event);
+  pocl_update_event_finished_msg (CL_FAILED, NULL, 0, event, NULL);
+  POCL_LOCK_OBJ (event);
+}
+
+void
+pocl_update_event_complete_msg (const char *func, unsigned line,
+                                cl_event event, const char *msg)
+{
+  pocl_update_event_finished_msg (CL_COMPLETE, func, line, event, msg);
 }
 
 /*

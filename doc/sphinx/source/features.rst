@@ -1,34 +1,14 @@
-Known unsupported OpenCL features
-=================================
+Supported features and devices
+===============================
 
-The known unsupported OpenCL (both 1.x and 2.x) features are
-listed here as encountered.
+Pocl currently supports CPUs (x86-64 with full 1.2 conformance, ARM 32b/64b ligthly tested),
+NVidia GPUs via CUDA backend, HSA devices, TCE devices and fixed-function accelerators.
 
-Frontend/Clang
---------------
+.. toctree::
+   :maxdepth: 2
 
-* OpenCL 1.x
-
-  * OpenGL interoperability
-  * Image support is incomplete
-
-* OpenCL 2.0
-
-  * generic address space (recognized by LLVM 3.8+ but incomplete)
-  * pipes (WIP)
-  * device-side enqueue
-
-* cl_khr_f16: half precision float literals
-
-  Compiling "3434.0h" fails with:
-  error: invalid suffix 'h' on floating constant
-
-  Tested with Clang 3.4 on 2014-07-10.
-
-
-Unimplemented host side functions
----------------------------------
-
-The list of unimplemented host-side API functions can be seen as the NULLs in the ICD dispatch struct in
-https://github.com/pocl/pocl/blob/master/lib/CL/clGetPlatformIDs.c
-
+   opencl_status
+   conformance
+   hsa
+   cuda
+   accel

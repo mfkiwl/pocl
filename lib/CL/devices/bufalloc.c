@@ -1,6 +1,6 @@
 /* OpenCL runtime/device driver library: custom buffer allocator
 
-   Copyright (c) 2011 Tampere University of Technology
+   Copyright (c) 2011-2020 pocl contributors
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -104,7 +104,7 @@ chunk_slack (chunk_info_t* chunk, size_t size, size_t* last_chunk_size)
   size_t end_addr = aligned_start_addr + size;
   if(last_chunk_size)
     *last_chunk_size = end_chunk - end_addr;
-  return end_chunk > end_addr;
+  return end_chunk >= end_addr;
 }
 
 /**
@@ -207,7 +207,16 @@ alloc_buffer_from_region (memory_region_t *region, size_t size)
       if (cursor == region->last_chunk ||
           cursor->is_allocated ||
           !chunk_slack (cursor, size, NULL))
-        continue; /* doesn't fit */
+        {
+#ifdef DEBUG_BUFALLOC
+          printf ("### CHUNK REJECTED: SIZE: %zu IS_LAST: %u CHUNK %p: "
+                  "allocated: %d start: %zx size: %zu prev: %p next: %p\n",
+          size, (unsigned)(cursor == region->last_chunk),
+          cursor, cursor->is_allocated, cursor->start_address,
+          cursor->size, cursor->prev, cursor->next);
+#endif
+          continue; /* doesn't fit */
+        }
       /* found one */
       chunk = cursor;
       chunk->is_allocated = 1;

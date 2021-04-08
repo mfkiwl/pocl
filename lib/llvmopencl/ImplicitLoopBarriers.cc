@@ -25,6 +25,9 @@
 
 #include "config.h"
 
+#include "CompilerWarnings.h"
+IGNORE_COMPILER_WARNING("-Wunused-parameter")
+
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
@@ -143,8 +146,9 @@ bool ImplicitLoopBarriers::AddInnerLoopBarrier(
   if (!VUA.isUniform(f, loopEntry)) {
 #ifdef DEBUG_ILOOP_BARRIERS
     std::cerr << "### the loop is not uniform because loop entry '"
-              << loopEntry->getName().str() << "' is not uniform" << std::endl;
-    
+              << loopEntry->getName().str() << "' is not uniform; LOOP: \n"
+              << std::endl;
+    L->dump();
 #endif
     return false;
   }

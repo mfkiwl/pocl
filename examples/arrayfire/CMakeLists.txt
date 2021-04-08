@@ -31,6 +31,12 @@ set(TS_SRCDIR "${TESTSUITE_SOURCE_BASEDIR}/${TS_NAME}")
 find_package(LAPACK QUIET)
 find_package(Boost QUIET)
 
+if(EXAMPLES_USE_GIT_MASTER)
+  set(FETCH_SOURCE GIT_REPOSITORY "https://github.com/arrayfire/arrayfire.git")
+else()
+  set(FETCH_SOURCE URL "https://github.com/arrayfire/arrayfire/archive/v3.6.1.tar.gz")
+endif()
+
 if(HAVE_GIT)
 
 if(LAPACK_FOUND AND
@@ -43,7 +49,7 @@ if(LAPACK_FOUND AND
   ExternalProject_Add(
     ${TS_NAME}
     PREFIX "${TS_BASEDIR}"
-    GIT_REPOSITORY "https://github.com/arrayfire/${TS_NAME}.git"
+    ${FETCH_SOURCE}
     #PATCH_COMMAND  pwd && sed -i "s/CL_DEVICE_TYPE_GPU/CL_DEVICE_TYPE_CPU/g" *.cpp
     #UPDATE_COMMAND /bin/true
     CMAKE_ARGS
@@ -159,9 +165,6 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_tests_gfor_opencl
            COMMAND "${TS_BUILDDIR}/test/gfor_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
-  add_test(NAME arrayfire_tests_gloh_nonfree_opencl
-           COMMAND "${TS_BUILDDIR}/test/gloh_nonfree_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/test")
   add_test(NAME arrayfire_tests_gradient_opencl
            COMMAND "${TS_BUILDDIR}/test/gradient_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
@@ -204,9 +207,6 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_tests_lu_dense_opencl
            COMMAND "${TS_BUILDDIR}/test/lu_dense_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
-  add_test(NAME arrayfire_tests_manual_memory_test_opencl
-           COMMAND "${TS_BUILDDIR}/test/manual_memory_test_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/test")
   add_test(NAME arrayfire_tests_match_template_opencl
            COMMAND "${TS_BUILDDIR}/test/match_template_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
@@ -225,9 +225,10 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_tests_medfilt_opencl
            COMMAND "${TS_BUILDDIR}/test/medfilt_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
-  add_test(NAME arrayfire_tests_median_opencl
-           COMMAND "${TS_BUILDDIR}/test/median_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/test")
+# takes too long
+#  add_test(NAME arrayfire_tests_median_opencl
+#           COMMAND "${TS_BUILDDIR}/test/median_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/test")
   add_test(NAME arrayfire_tests_memory_lock_opencl
            COMMAND "${TS_BUILDDIR}/test/memory_lock_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
@@ -294,9 +295,6 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_tests_set_opencl
            COMMAND "${TS_BUILDDIR}/test/set_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
-  add_test(NAME arrayfire_tests_sift_nonfree_opencl
-           COMMAND "${TS_BUILDDIR}/test/sift_nonfree_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/test")
   add_test(NAME arrayfire_tests_sobel_opencl
            COMMAND "${TS_BUILDDIR}/test/sobel_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
@@ -359,48 +357,31 @@ if(LAPACK_FOUND AND
            WORKING_DIRECTORY "${TS_BUILDDIR}/test")
 
 
-  add_test(NAME arrayfire_examples_adaptive_thresholding_opencl
-           COMMAND "${TS_BUILDDIR}/examples/image_processing/adaptive_thresholding_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
-  add_test(NAME arrayfire_examples_binary_thresholding_opencl
-           COMMAND "${TS_BUILDDIR}/examples/image_processing/binary_thresholding_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
-  add_test(NAME arrayfire_examples_brain_segmentation_opencl
-           COMMAND "${TS_BUILDDIR}/examples/image_processing/brain_segmentation_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
-  add_test(NAME arrayfire_examples_filters_opencl
-           COMMAND "${TS_BUILDDIR}/examples/image_processing/filters_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
-  add_test(NAME arrayfire_examples_deep_belief_net_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/deep_belief_net_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_kmeans_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/kmeans_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_knn_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/knn_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_logistic_regression_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/logistic_regression_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+# these tests are commented out b/c they take too much time on CPU.
+#  add_test(NAME arrayfire_examples_deep_belief_net_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/deep_belief_net_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+#  add_test(NAME arrayfire_examples_kmeans_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/kmeans_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+#  add_test(NAME arrayfire_examples_logistic_regression_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/logistic_regression_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
   add_test(NAME arrayfire_examples_naive_bayes_opencl
            COMMAND "${TS_BUILDDIR}/examples/machine_learning/naive_bayes_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_neural_network_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/neural_network_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_perceptron_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/perceptron_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_rbm_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/rbm_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_softmax_regression_opencl
-           COMMAND "${TS_BUILDDIR}/examples/machine_learning/softmax_regression_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
-  add_test(NAME arrayfire_examples_basic_opencl
-           COMMAND "${TS_BUILDDIR}/examples/unified/basic_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/unified")
+#  add_test(NAME arrayfire_examples_neural_network_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/neural_network_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+#  add_test(NAME arrayfire_examples_perceptron_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/perceptron_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+#  add_test(NAME arrayfire_examples_rbm_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/rbm_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
+#  add_test(NAME arrayfire_examples_softmax_regression_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/machine_learning/softmax_regression_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/machine_learning")
   add_test(NAME arrayfire_examples_black_scholes_options_opencl
            COMMAND "${TS_BUILDDIR}/examples/financial/black_scholes_options_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/financial")
@@ -410,9 +391,10 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_examples_monte_carlo_options_opencl
            COMMAND "${TS_BUILDDIR}/examples/financial/monte_carlo_options_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/financial")
-  add_test(NAME arrayfire_examples_blas_opencl
-           COMMAND "${TS_BUILDDIR}/examples/benchmarks/blas_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/benchmarks")
+# works but too slow
+#  add_test(NAME arrayfire_examples_blas_opencl
+#           COMMAND "${TS_BUILDDIR}/examples/benchmarks/blas_opencl"
+#           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/benchmarks")
   add_test(NAME arrayfire_examples_fft_opencl
            COMMAND "${TS_BUILDDIR}/examples/benchmarks/fft_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/benchmarks")
@@ -446,21 +428,19 @@ if(LAPACK_FOUND AND
   add_test(NAME arrayfire_examples_histogram_opencl
            COMMAND "${TS_BUILDDIR}/examples/graphics/histogram_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/graphics")
-  add_test(NAME arrayfire_examples_fast_opencl
-           COMMAND "${TS_BUILDDIR}/examples/computer_vision/fast_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
-  add_test(NAME arrayfire_examples_matching_opencl
-           COMMAND "${TS_BUILDDIR}/examples/computer_vision/matching_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
-  add_test(NAME arrayfire_examples_susan_opencl
-           COMMAND "${TS_BUILDDIR}/examples/computer_vision/susan_opencl"
-           WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
   add_test(NAME arrayfire_examples_helloworld_opencl
            COMMAND "${TS_BUILDDIR}/examples/helloworld/helloworld_opencl"
            WORKING_DIRECTORY "${TS_BUILDDIR}/examples/helloworld")
 
   if (IMAGE_TESTS_ENABLED)
     set (IMAGE_TESTS_LIST
+        arrayfire_examples_fast_opencl
+        arrayfire_examples_matching_opencl
+        arrayfire_examples_susan_opencl
+        arrayfire_examples_adaptive_thresholding_opencl
+        arrayfire_examples_binary_thresholding_opencl
+        arrayfire_examples_brain_segmentation_opencl
+        arrayfire_examples_filters_opencl
         arrayfire_examples_edge_opencl
         arrayfire_examples_plot2d_opencl
         arrayfire_examples_plot3_opencl
@@ -478,6 +458,27 @@ if(LAPACK_FOUND AND
         arrayfire_examples_harris_opencl
         arrayfire_examples_swe_opencl
     )
+    add_test(NAME arrayfire_examples_fast_opencl
+             COMMAND "${TS_BUILDDIR}/examples/computer_vision/fast_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
+    add_test(NAME arrayfire_examples_matching_opencl
+             COMMAND "${TS_BUILDDIR}/examples/computer_vision/matching_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
+    add_test(NAME arrayfire_examples_susan_opencl
+             COMMAND "${TS_BUILDDIR}/examples/computer_vision/susan_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/computer_vision")
+    add_test(NAME arrayfire_examples_adaptive_thresholding_opencl
+             COMMAND "${TS_BUILDDIR}/examples/image_processing/adaptive_thresholding_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
+    add_test(NAME arrayfire_examples_binary_thresholding_opencl
+             COMMAND "${TS_BUILDDIR}/examples/image_processing/binary_thresholding_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
+    add_test(NAME arrayfire_examples_brain_segmentation_opencl
+             COMMAND "${TS_BUILDDIR}/examples/image_processing/brain_segmentation_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
+    add_test(NAME arrayfire_examples_filters_opencl
+             COMMAND "${TS_BUILDDIR}/examples/image_processing/filters_opencl"
+             WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
     add_test(NAME arrayfire_examples_edge_opencl
              COMMAND "${TS_BUILDDIR}/examples/image_processing/edge_opencl"
              WORKING_DIRECTORY "${TS_BUILDDIR}/examples/image_processing")
@@ -564,7 +565,6 @@ if(LAPACK_FOUND AND
     arrayfire_tests_gen_index_opencl
     arrayfire_tests_getting_started_opencl
     arrayfire_tests_gfor_opencl
-    arrayfire_tests_gloh_nonfree_opencl
     arrayfire_tests_gradient_opencl
     arrayfire_tests_hamming_opencl
     arrayfire_tests_homography_opencl
@@ -579,14 +579,13 @@ if(LAPACK_FOUND AND
     arrayfire_tests_jit_opencl
     arrayfire_tests_join_opencl
     arrayfire_tests_lu_dense_opencl
-    arrayfire_tests_manual_memory_test_opencl
     arrayfire_tests_match_template_opencl
     arrayfire_tests_math_opencl
     arrayfire_tests_matrix_manipulation_opencl
     arrayfire_tests_mean_opencl
     arrayfire_tests_meanshift_opencl
     arrayfire_tests_medfilt_opencl
-    arrayfire_tests_median_opencl
+#    arrayfire_tests_median_opencl
     arrayfire_tests_memory_lock_opencl
     arrayfire_tests_memory_opencl
     arrayfire_tests_missing_opencl
@@ -610,7 +609,6 @@ if(LAPACK_FOUND AND
     arrayfire_tests_rotate_opencl
     arrayfire_tests_select_opencl
     arrayfire_tests_set_opencl
-    arrayfire_tests_sift_nonfree_opencl
     arrayfire_tests_sobel_opencl
     arrayfire_tests_solve_dense_opencl
     arrayfire_tests_shift_opencl
@@ -639,24 +637,18 @@ if(LAPACK_FOUND AND
 
   set_tests_properties(
     ${IMAGE_TESTS_LIST}
-    arrayfire_examples_adaptive_thresholding_opencl
-    arrayfire_examples_binary_thresholding_opencl
-    arrayfire_examples_brain_segmentation_opencl
-    arrayfire_examples_filters_opencl
-    arrayfire_examples_deep_belief_net_opencl
-    arrayfire_examples_kmeans_opencl
-    arrayfire_examples_knn_opencl
-    arrayfire_examples_logistic_regression_opencl
+#    arrayfire_examples_deep_belief_net_opencl
+#    arrayfire_examples_kmeans_opencl
+#    arrayfire_examples_logistic_regression_opencl
     arrayfire_examples_naive_bayes_opencl
-    arrayfire_examples_neural_network_opencl
-    arrayfire_examples_perceptron_opencl
-    arrayfire_examples_rbm_opencl
-    arrayfire_examples_softmax_regression_opencl
-    arrayfire_examples_basic_opencl
+#    arrayfire_examples_neural_network_opencl
+#    arrayfire_examples_perceptron_opencl
+#    arrayfire_examples_rbm_opencl
+#    arrayfire_examples_softmax_regression_opencl
     arrayfire_examples_black_scholes_options_opencl
     arrayfire_examples_heston_model_opencl
     arrayfire_examples_monte_carlo_options_opencl
-    arrayfire_examples_blas_opencl
+#    arrayfire_examples_blas_opencl
     arrayfire_examples_fft_opencl
     arrayfire_examples_pi_opencl
     arrayfire_examples_cholesky_opencl
@@ -668,9 +660,6 @@ if(LAPACK_FOUND AND
     arrayfire_examples_rainfall_opencl
     arrayfire_examples_vectorize_opencl
 #    arrayfire_examples_gravity_sim_opencl
-    arrayfire_examples_fast_opencl
-    arrayfire_examples_matching_opencl
-    arrayfire_examples_susan_opencl
     arrayfire_examples_helloworld_opencl
     PROPERTIES
       LABELS "${TS_NAME} ${TS_NAME}_examples")

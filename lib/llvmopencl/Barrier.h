@@ -1,17 +1,18 @@
 // Class for barrier instructions, modelled as a CallInstr.
-// 
+//
 // Copyright (c) 2011 Universidad Rey Juan Carlos
-// 
+//               2011-2019 Pekka Jääskeläinen
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -35,7 +36,7 @@
 #define BARRIER_FUNCTION_NAME "pocl.barrier"
 
 namespace pocl {
-  
+
   class Barrier : public llvm::CallInst {
 
   public:
@@ -59,21 +60,22 @@ namespace pocl {
       if (InsertBefore != &InsertBefore->getParent()->front() && 
           llvm::isa<Barrier>(InsertBefore->getPrevNode()))
         return llvm::cast<Barrier>(InsertBefore->getPrevNode());
-
-#if LLVM_OLDER_THAN_5_0
-      llvm::Function *F = llvm::cast<llvm::Function>
-        (M->getOrInsertFunction(BARRIER_FUNCTION_NAME,
-                                llvm::Type::getVoidTy(M->getContext()), NULL));
-#else
+#ifdef LLVM_OLDER_THAN_9_0
       llvm::Function *F = llvm::cast<llvm::Function>
         (M->getOrInsertFunction(BARRIER_FUNCTION_NAME,
                                 llvm::Type::getVoidTy(M->getContext())));
+#else
+      llvm::FunctionCallee f =
+        M->getOrInsertFunction(BARRIER_FUNCTION_NAME,
+                                llvm::Type::getVoidTy(M->getContext()));
+      llvm::Function *F = llvm::cast<llvm::Function>(f.getCallee());
 #endif
+      F->addFnAttr(llvm::Attribute::NoDuplicate);
       F->setLinkage(llvm::GlobalValue::LinkOnceAnyLinkage);
       return llvm::cast<pocl::Barrier>
         (llvm::CallInst::Create(F, "", InsertBefore));
     }
-    static bool classof(const Barrier *) { return true; };
+    static bool classof(const Barrier *) { return true; }
     static bool classof(const llvm::CallInst *C) {
       return C->getCalledFunction() != NULL &&
         C->getCalledFunction()->getName() == BARRIER_FUNCTION_NAME;
@@ -119,7 +121,7 @@ namespace pocl {
     // Returns true in case the given basic block ends with a barrier,
     // that is, contains only a branch instruction after a barrier call.
     static bool endsWithBarrier(const llvm::BasicBlock *bb) {
-      const llvm::TerminatorInst *t = bb->getTerminator();
+      const llvm::Instruction *t = bb->getTerminator();
       if (t == NULL) 
         return false;
       return bb->size() > 1 && t->getPrevNode() != NULL && 

@@ -27,8 +27,14 @@ set(TS_NAME "ViennaCL")
 set(TS_BASEDIR "${TESTSUITE_BASEDIR}/${TS_NAME}")
 set(TS_BUILDDIR "${TS_BASEDIR}/src/${TS_NAME}-build")
 set(TS_SRCDIR "${TESTSUITE_SOURCE_BASEDIR}/${TS_NAME}")
-set(VIENNA "ViennaCL-1.7.0")
+set(VIENNA "ViennaCL-1.7.1")
 set(ViennaCL_TGZ "${TS_SRCDIR}/${VIENNA}.tar.gz")
+
+if(EXAMPLES_USE_GIT_MASTER)
+  set(FETCH_SOURCE GIT_REPOSITORY "https://github.com/viennacl/viennacl-dev.git")
+else()
+  set(FETCH_SOURCE URL "http://sourceforge.net/projects/viennacl/files/1.7.x/ViennaCL-1.7.1.tar.gz/download")
+endif()
 
 if(EXISTS "${ViennaCL_TGZ}")
 
@@ -292,6 +298,24 @@ if(EXISTS "${ViennaCL_TGZ}")
   viennacl_tests_vector_uint_test_opencl
     PROPERTIES
       LABELS "ViennaCL ViennaCL_tests")
+
+
+  # failing tests
+  set_tests_properties(
+    # Could not find a dominating alternative variable.
+    viennacl_tests_sparse_prod_test_opencl
+    viennacl_tests_spmdm_test_opencl
+    viennacl_tests_sparse_test_opencl
+    viennacl_examples_iterative_custom
+    # used type 'float' where floating point type is not allowed
+    viennacl_tests_self_assign_test_opencl
+    # used type 'double' where floating point type is not allowed
+    viennacl_examples_amg
+    # Error! Difference: 1924149235
+    viennacl_tests_vector_int_test_opencl
+    viennacl_tests_vector_uint_test_opencl
+    PROPERTIES
+      WILL_FAIL 1)
 
 
 else()

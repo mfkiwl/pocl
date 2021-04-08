@@ -24,6 +24,8 @@
 #ifndef POCL_CACHE_H
 #define POCL_CACHE_H
 
+#include "pocl_cl.h"
+
 /* The filename in which the work group (parallelizable) kernel LLVM bc is stored in
    the kernel's temp dir. */
 #define POCL_PARALLEL_BC_FILENAME   "/parallel.bc"
@@ -32,14 +34,9 @@
 extern "C" {
 #endif
 
-#define CL_USE_DEPRECATED_OPENCL_1_1_APIS
 #include <CL/cl.h>
 
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
-
-void pocl_cache_init_topdir();
+int pocl_cache_init_topdir ();
 
 int
 pocl_cache_create_program_cachedir(cl_program program, unsigned device_i,
@@ -48,29 +45,26 @@ pocl_cache_create_program_cachedir(cl_program program, unsigned device_i,
 
 void pocl_cache_cleanup_cachedir(cl_program program);
 
-void* pocl_cache_acquire_writer_lock_i(cl_program program, unsigned device_i);
-
-void* pocl_cache_acquire_writer_lock(cl_program program, cl_device_id device);
-
-void* pocl_cache_acquire_reader_lock_i(cl_program program, unsigned device_i);
-
-void* pocl_cache_acquire_reader_lock(cl_program program, cl_device_id device);
-
-void pocl_cache_release_lock(void* lock);
-
 int pocl_cl_device_to_index(cl_program   program,
                             cl_device_id device);
 
-void pocl_cache_mk_temp_name(char* path);
+int pocl_cache_tempname (char *path_template, const char *suffix, int *fd);
 
 int pocl_cache_create_tempdir(char* path);
 
 int pocl_cache_write_program_source(char *program_cl_path,
                                     cl_program program);
 
+int pocl_cache_write_kernel_objfile (char *objfile_path,
+                                     const char *objfile_content,
+                                     uint64_t objfile_size);
+
+int pocl_cache_write_spirv (char *spirv_path,
+                            const char *spirv_content,
+                            uint64_t file_size);
+
 int pocl_cache_update_program_last_access(cl_program program,
                                           unsigned device_i);
-
 
 
 char* pocl_cache_read_buildlog(cl_program program, unsigned device_i);
@@ -90,33 +84,25 @@ int pocl_cache_write_descriptor(cl_program   program,
                                 const char*  content,
                                 size_t       size);
 
-void pocl_cache_kernel_cachedir_path (char* kernel_cachedir_path,
-                                      cl_program program,
-                                      unsigned device_i,
-                                      cl_kernel kernel,
-                                      char* append_str,
-                                      size_t local_x,
-                                      size_t local_y,
-                                      size_t local_z);
+void pocl_cache_kernel_cachedir_path (char *kernel_cachedir_path,
+                                      cl_program program, unsigned device_i,
+                                      cl_kernel kernel, const char *append_str,
+                                      _cl_command_node *command,
+                                      int specialize);
 
-
-int pocl_cache_write_kernel_parallel_bc(void*        bc,
-                                        cl_program   program,
-                                        unsigned     device_i,
-                                        cl_kernel    kernel,
-                                        size_t       local_x,
-                                        size_t       local_y,
-                                        size_t       local_z);
-
+int pocl_cache_write_kernel_parallel_bc (void *bc, cl_program program,
+                                         int device_i, cl_kernel kernel,
+                                         _cl_command_node *command,
+                                         int specialize);
 
 // required by pocl_binary.c
 
-void pocl_cache_program_path(char*        path,
-                             cl_program   program,
-                             unsigned     device_i);
+void pocl_cache_program_path (char *path, cl_program program,
+                              unsigned device_i);
 
-void pocl_cache_kernel_cachedir(char* kernel_cachedir_path, cl_program   program,
-                                unsigned device_i, cl_kernel kernel);
+void pocl_cache_kernel_cachedir (char *kernel_cachedir_path,
+                                 cl_program program, unsigned device_i,
+                                 const char *kernel_name);
 
 // these two required by llvm API
 
@@ -124,18 +110,15 @@ void pocl_cache_program_bc_path(char*       program_bc_path,
                                cl_program   program,
                                unsigned     device_i);
 
-void pocl_cache_work_group_function_path(char* parallel_bc_path, cl_program program,
-                              unsigned device_i, cl_kernel kernel,
-                              size_t local_x, size_t local_y, size_t local_z);
+void pocl_cache_work_group_function_path (char *parallel_bc_path,
+                                          cl_program program,
+                                          unsigned device_i, cl_kernel kernel,
+                                          _cl_command_node *command,
+                                          int specialize);
 
-void pocl_cache_final_binary_path(char* final_binary_path, cl_program program,
-                               unsigned device_i, cl_kernel kernel,
-                               size_t local_x, size_t local_y,
-                               size_t local_z);
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+void pocl_cache_final_binary_path (char *final_binary_path, cl_program program,
+                                   unsigned device_i, cl_kernel kernel,
+                                   _cl_command_node *command, int specialize);
 
 
 #ifdef __cplusplus

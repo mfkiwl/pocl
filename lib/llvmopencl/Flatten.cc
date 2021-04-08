@@ -1,4 +1,5 @@
-// LLVM module pass to inline ALL called functions into the kernel.
+// LLVM module pass that setups inline attributes so ALL called functions
+// will be inlined into the kernel.
 //
 // Copyright (c) 2011 Universidad Rey Juan Carlos
 //               2012-2015 Pekka Jääskeläinen
@@ -23,12 +24,14 @@
 
 #include <iostream>
 #include <string>
+#include <set>
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include "config.h"
 #include "pocl.h"
+#include "pocl_cl.h"
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -54,6 +57,7 @@ namespace {
 }
 
 extern cl::opt<std::string> KernelName;
+extern cl_device_id currentPoclDevice;
 
 char Flatten::ID = 0;
 static RegisterPass<Flatten>
@@ -66,23 +70,25 @@ bool
 Flatten::runOnModule(Module &M)
 {
   bool changed = false;
+
+  std::set<std::string> AuxFuncs;
+  if (const char **DevAuxFuncs = currentPoclDevice->device_aux_functions) {
+    const char **Func = DevAuxFuncs;
+    while (*Func != nullptr) {
+      AuxFuncs.insert(*Func++);
+    }
+  }
+
   for (llvm::Module::iterator i = M.begin(), e = M.end(); i != e; ++i) {
     llvm::Function *f = &*i;
-    if (f->isDeclaration()) continue;
-    if (KernelName == f->getName() ||
-        (KernelName == "" && pocl::Workgroup::isKernelToProcess(*f))) {
-#if LLVM_OLDER_THAN_5_0
-      AttributeSet Attrs;
-      f->removeAttributes(AttributeSet::FunctionIndex,
-                          Attrs.addAttribute(M.getContext(),
-                                             AttributeSet::FunctionIndex,
-                                             Attribute::AlwaysInline));
-#else
+    if (f->isDeclaration() || f->getName().startswith("__pocl_print") ||
+        AuxFuncs.find(f->getName().str()) != AuxFuncs.end())
+      continue;
+    if (KernelName == f->getName() && pocl::Workgroup::isKernelToProcess(*f)) {
       AttributeSet Attrs;
       f->removeAttributes(AttributeList::FunctionIndex,
                           Attrs.addAttribute(M.getContext(),
                                              Attribute::AlwaysInline));
-#endif
 
       f->addFnAttr(Attribute::NoInline);
 
@@ -91,19 +97,11 @@ Flatten::runOnModule(Module &M)
 #ifdef DEBUG_FLATTEN
       std::cerr << "### NoInline for " << f->getName().str() << std::endl;
 #endif
-      } else {
-#if LLVM_OLDER_THAN_5_0
-      AttributeSet Attrs;
-      f->removeAttributes(AttributeSet::FunctionIndex,
-                          Attrs.addAttribute(M.getContext(),
-                                             AttributeSet::FunctionIndex,
-                                             Attribute::NoInline));
-#else
+    } else {
       AttributeSet Attrs;
       f->removeAttributes(AttributeList::FunctionIndex,
                           Attrs.addAttribute(M.getContext(),
                                              Attribute::NoInline));
-#endif
       f->addFnAttr(Attribute::AlwaysInline);
 
       f->setLinkage(llvm::GlobalValue::InternalLinkage);
@@ -111,8 +109,8 @@ Flatten::runOnModule(Module &M)
 #ifdef DEBUG_FLATTEN
       std::cerr << "### AlwaysInline for " << f->getName().str() << std::endl;
 #endif
-      }
     }
+  }
   return changed;
 }
 

@@ -26,6 +26,28 @@
 #include "pocl_cl.h"
 #include "pocl_util.h"
 
+cl_int opencl_image_type_to_index (cl_mem_object_type  image_type)
+{
+  switch (image_type)
+    {
+      case CL_MEM_OBJECT_IMAGE2D                      : return 0;
+      case CL_MEM_OBJECT_IMAGE3D                      : return 1;
+      case CL_MEM_OBJECT_IMAGE2D_ARRAY                : return 2;
+      case CL_MEM_OBJECT_IMAGE1D                      : return 3;
+      case CL_MEM_OBJECT_IMAGE1D_ARRAY                : return 4;
+      case CL_MEM_OBJECT_IMAGE1D_BUFFER               : return 5;
+      default: return -1;
+    }
+}
+
+void
+origin_to_bytes (cl_mem mem, const size_t *origin, size_t *byte_offset)
+{
+  *byte_offset = origin[0] + origin[1] * mem->image_row_pitch
+                 + origin[2] * mem->image_slice_pitch;
+  *byte_offset *= (mem->image_elem_size * mem->image_channels);
+}
+
 static unsigned
 pocl_get_image_dim (const cl_mem image)
 {
@@ -101,12 +123,14 @@ extern cl_int
 pocl_check_device_supports_image (cl_device_id device,
                                   const cl_image_format *image_format,
                                   const cl_image_desc *image_desc,
-                                  cl_image_format *supported_image_formats,
-                                  cl_uint num_entries)
+                                  cl_uint image_type_idx,
+                                  int *device_support)
 {
-  cl_int errcode;
   cl_uint i;
   size_t m;
+
+  if (device_support)
+    *device_support = 0;
 
   POCL_RETURN_ERROR_ON((!device->image_support), CL_INVALID_OPERATION,
           "Device does not support images");
@@ -162,23 +186,28 @@ pocl_check_device_supports_image (cl_device_id device,
           "Image buffer size (width) > device.max_buffer_size\n");
     }
 
-  for (i = 0; i < num_entries; i++)
+  if (device_support)
+    *device_support |= DEVICE_IMAGE_SIZE_SUPPORT;
+
+  for (i = 0; i < device->num_image_formats[image_type_idx]; i++)
     {
-      if (supported_image_formats[i].image_channel_order
+      const cl_image_format *p = device->image_formats[image_type_idx];
+      assert (p != NULL);
+      if (p[i].image_channel_order
               == image_format->image_channel_order
-          && supported_image_formats[i].image_channel_data_type
+          && p[i].image_channel_data_type
                  == image_format->image_channel_data_type)
         {
-          errcode = CL_SUCCESS;
-          goto ERROR;
+          if (device_support)
+            *device_support |= DEVICE_IMAGE_FORMAT_SUPPORT;
+
+          return CL_SUCCESS;
         }
     }
 
-  POCL_GOTO_ERROR_ON (1, CL_INVALID_IMAGE_FORMAT_DESCRIPTOR,
-                      "The image format is not supported by the device\n");
-
-ERROR:
-  return errcode;
+  POCL_MSG_ERR2 ("CL_INVALID_IMAGE_FORMAT_DESCRIPTOR",
+                 "The image format is not supported by the device\n");
+  return CL_INVALID_IMAGE_FORMAT_DESCRIPTOR;
 }
 
 extern void
@@ -204,7 +233,9 @@ pocl_get_image_information (cl_channel_order ch_order,
     {
       *elem_size_out = 2; /* 16bit -> 2 bytes */
     }
-  
+  else
+    *elem_size_out = 0;
+
   /* channels TODO: verify num of channels*/
   if (ch_order == CL_RGB || ch_order == CL_RGBx || ch_order == CL_R || 
       ch_order == CL_Rx || ch_order == CL_A)

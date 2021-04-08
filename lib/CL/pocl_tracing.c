@@ -23,11 +23,12 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "pocl_cq_profiling.h"
 #include "pocl_util.h"
 #include "pocl_tracing.h"
 #include "pocl_runtime_config.h"
 
-#ifdef LTTNG_UST_AVAILABLE
+#ifdef HAVE_LTTNG_UST
 #include "pocl_lttng.h"
 static const struct pocl_event_tracer lttng_tracer;
 #endif
@@ -36,35 +37,43 @@ static int tracing_initialized = 0;
 static uint8_t event_trace_filter = 0xF;
 
 static const struct pocl_event_tracer text_logger;
+static const struct pocl_event_tracer cq_profiler;
 
 /* List of tracers
  */
 static const struct pocl_event_tracer *pocl_event_tracers[] = {
   &text_logger,
-#ifdef LTTNG_UST_AVAILABLE
+#ifdef HAVE_LTTNG_UST
   &lttng_tracer,
 #endif
+  &cq_profiler
 };
 
 #define POCL_TRACER_COUNT (sizeof(pocl_event_tracers) / sizeof((pocl_event_tracers)[0]))
 
 static const struct pocl_event_tracer *event_tracer = NULL;
 
+/* Called with event locked, and must also return with a locked event. */
 void
 pocl_event_updated (cl_event event, int status)
 {
   event_callback_item *cb_ptr;
 
-  /* event callback handling just call functions in the same order
-   * they were added if the status match the specified one */
+  /* Event callback handling calls functions in the same order
+     they were added if the status matches the specified one. */
   for (cb_ptr = event->callback_list; cb_ptr; cb_ptr = cb_ptr->next)
     {
       if (cb_ptr->trigger_status == status)
-       cb_ptr->callback_function (event, cb_ptr->trigger_status,
-                               cb_ptr->user_data);
+        {
+          POCL_UNLOCK_OBJ (event);
+          cb_ptr->callback_function (event, cb_ptr->trigger_status,
+                                     cb_ptr->user_data);
+          POCL_LOCK_OBJ (event);
+        }
     }
 
-  if (event_tracer && ((1 << status) & event_trace_filter))
+  if (event_tracer && event_tracer->event_updated &&
+      ((1 << status) & event_trace_filter))
     event_tracer->event_updated (event, status);
 }
 
@@ -74,7 +83,7 @@ pocl_parse_event_filter ()
   const char *trace_filter;
   char *tmp_str, *save_ptr, *token;
 
-  trace_filter = pocl_get_string_option ("POCL_TRACE_EVENT_FILTER", NULL);
+  trace_filter = pocl_get_string_option ("POCL_TRACING_FILTER", NULL);
   if (trace_filter == NULL)
     return;
 
@@ -105,7 +114,7 @@ PARSE_OUT:
 }
 
 void
-pocl_event_tracing_init ()
+pocl_tracing_init ()
 {
   const char *trace_env;
   unsigned i;
@@ -113,7 +122,7 @@ pocl_event_tracing_init ()
   if (tracing_initialized)
     return;
 
-  trace_env = pocl_get_string_option ("POCL_TRACE_EVENT", NULL);
+  trace_env = pocl_get_string_option ("POCL_TRACING", NULL);
   if (trace_env == NULL)
     goto EVENT_INIT_OUT;
 
@@ -148,7 +157,7 @@ text_tracer_init ()
 {
   const char *text_tracer_output;
 
-  text_tracer_output = pocl_get_string_option ("POCL_TRACE_EVENT_OPT",
+  text_tracer_output = pocl_get_string_option ("POCL_TRACING_OPT",
                                           "pocl_trace_events.log");
   text_tracer_file = fopen (text_tracer_output, "w");
   if (!text_tracer_file)
@@ -158,8 +167,22 @@ text_tracer_init ()
 static void
 text_tracer_event_updated (cl_event event, int status)
 {
-  cl_command_queue cq = event->queue;
-  cl_ulong ts = cq->device->ops->get_timer_value (cq->device->data);
+  cl_ulong ts;
+  switch (status)
+    {
+    case CL_QUEUED:
+      ts = event->time_queue;
+      break;
+    case CL_SUBMITTED:
+      ts = event->time_submit;
+      break;
+    case CL_RUNNING:
+      ts = event->time_start;
+      break;
+    case CL_COMPLETE:
+    default:
+      ts = event->time_end;
+    }
   _cl_command_node *node = event->command;
   char tmp_buffer[512];
   char *cur_buf = tmp_buffer;
@@ -178,17 +201,18 @@ text_tracer_event_updated (cl_event event, int status)
   switch (event->command_type)
     {
     case CL_COMMAND_READ_BUFFER:
-      text_size += sprintf (cur_buf, "size=%"PRIuS", host_ptr=%p\n",
-                            node->command.read.cb,
-                            node->command.read.host_ptr);
+      text_size += sprintf (cur_buf, "size=%" PRIuS ", host_ptr=%p\n",
+                            node->command.read.size,
+                            node->command.read.dst_host_ptr);
       break;
     case CL_COMMAND_WRITE_BUFFER:
-      text_size += sprintf (cur_buf, "size=%"PRIuS", host_ptr=%p\n\n",
-                            node->command.write.cb,
-                            node->command.write.host_ptr);
+      text_size += sprintf (cur_buf, "size=%" PRIuS ", host_ptr=%p\n\n",
+                            node->command.write.size,
+                            node->command.write.src_host_ptr);
       break;
     case CL_COMMAND_COPY_BUFFER:
-      text_size += sprintf (cur_buf, "size=%"PRIuS"\n", node->command.copy.cb);
+      text_size
+          += sprintf (cur_buf, "size=%" PRIuS "\n", node->command.copy.size);
       break;
     case CL_COMMAND_NDRANGE_KERNEL:
       text_size += sprintf (cur_buf, "name=%s\n",
@@ -203,6 +227,11 @@ text_tracer_event_updated (cl_event event, int status)
       text_size++;
     }
 
+  /* TODO: Make text_logger less intrusive by merging it with cq_profiler.
+     Now it actually sprintfs after every event change which has a significant
+     footprint. It could just use the collected events and sprintf the log
+     after N events or atexit() to avoid the printing affecting the profile. */
+
   POCL_LOCK (text_tracer_lock);
   fwrite (tmp_buffer, text_size, 1, text_tracer_file);
   POCL_UNLOCK (text_tracer_lock);
@@ -214,8 +243,16 @@ static const struct pocl_event_tracer text_logger = {
   text_tracer_event_updated,
 };
 
+static const struct pocl_event_tracer cq_profiler = {
+  "cq",
+  pocl_cq_profiling_init,
+  /* Avoid a callback after every event change to minimize impact to the profiling run.
+     Instead just store the event timestamps with as little impact as possible for
+     later collection/analysis. */
+  NULL
+};
 
-#ifdef LTTNG_UST_AVAILABLE
+#ifdef HAVE_LTTNG_UST
 
 /* LTTNG tracer
  */
@@ -237,29 +274,29 @@ lttng_tracer_event_updated (cl_event event, int status)
   switch (event->command_type)
     {
     case CL_COMMAND_NDRANGE_KERNEL:
-      tracepoint (pocl_trace, ndrange_kernel, status,
+      tracepoint (pocl_trace, ndrange_kernel, event->id, status,
                   node->command.run.kernel->name);
       break;
     case CL_COMMAND_READ_BUFFER:
-      tracepoint (pocl_trace, read_buffer, status,
-                  node->command.write.host_ptr, node->command.write.cb);
+      tracepoint (pocl_trace, read_buffer, event->id, status,
+                  node->command.read.dst_host_ptr, node->command.read.size);
       break;
     case CL_COMMAND_WRITE_BUFFER:
-      tracepoint (pocl_trace, write_buffer, status,
-                  node->command.write.host_ptr, node->command.write.cb);
+      tracepoint (pocl_trace, write_buffer, event->id, status,
+                  node->command.write.src_host_ptr, node->command.write.size);
       break;
     case CL_COMMAND_COPY_BUFFER:
-      tracepoint (pocl_trace, copy_buffer, status, node->command.copy.cb);
+      tracepoint (pocl_trace, copy_buffer, event->id, status, node->command.copy.size);
       break;
     case CL_COMMAND_FILL_BUFFER:
-      tracepoint (pocl_trace, fill_buffer, status, node->command.copy.cb);
+      tracepoint (pocl_trace, fill_buffer, event->id, status, node->command.copy.size);
       break;
     case CL_COMMAND_MAP_BUFFER:
     case CL_COMMAND_MAP_IMAGE:
-      tracepoint (pocl_trace, map, status, node->command.map.mapping->size);
+      tracepoint (pocl_trace, map, event->id, status, node->command.map.mapping->size);
       break;
     default:
-      tracepoint (pocl_trace, command, status,
+      tracepoint (pocl_trace, command, event->id, status,
                   pocl_command_to_str (event->command_type));
       break;
     }
@@ -270,5 +307,6 @@ static const struct pocl_event_tracer lttng_tracer = {
   lttng_tracer_init,
   lttng_tracer_event_updated,
 };
+
 
 #endif

@@ -36,7 +36,22 @@ POname(clReleaseEvent)(cl_event event) CL_API_SUFFIX__VERSION_1_0
   
   if (new_refcount == 0)
     {
-      POCL_MSG_PRINT_REFCOUNTS ("Free event %d\n", event->id);
+      event_callback_item *cb_ptr = NULL;
+      event_callback_item *next = NULL;
+      for (cb_ptr = event->callback_list; cb_ptr; cb_ptr = next)
+        {
+          next = cb_ptr->next;
+          POCL_MEM_FREE (cb_ptr);
+        }
+
+      if (event->command_type == CL_COMMAND_USER)
+        {
+          pocl_user_event_data *p = event->data;
+          pthread_cond_destroy (&p->wakeup_cond);
+          POCL_MEM_FREE (p);
+        }
+
+      POCL_MSG_PRINT_REFCOUNTS ("Free event %d | %p\n", event->id, event);
       if (event->command_type != CL_COMMAND_USER &&
           event->queue->device->ops->free_event_data)
         event->queue->device->ops->free_event_data(event);
@@ -45,6 +60,7 @@ POname(clReleaseEvent)(cl_event event) CL_API_SUFFIX__VERSION_1_0
       if (event->queue)
         POname(clReleaseCommandQueue) (event->queue);
 
+      POCL_DESTROY_OBJECT (event);
       pocl_mem_manager_free_event (event);
     }
 

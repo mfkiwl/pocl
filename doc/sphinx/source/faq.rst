@@ -33,6 +33,17 @@ to build pocl, as the one that was used to build the 2nd compiler. Note that
 while most Linux distributions use gcc to build their clang/llvm,
 the official downloads from llvm.org are built using clang.
 
+Pocl is not listed by clinfo / is not found
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Occasionally, proprietary implementations rewrite the ICD loader by their own
+version. E.g. Intel SDK installer silently replaces
+``/usr/lib/x86_64-linux-gnu/libOpenCL.so`` with a link to
+``/etc/alternatives/opencl-libOpenCL.so`` which itself is a link to the intel's
+libOpenCL implementation. The fix is to remove the symlinks manually
+and reinstall the ICD loader after which both pocl and the Intel SDK
+can be used through the ICD loader.
+
 Deadlocks (freezes) on FreeBSD
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -99,23 +110,59 @@ the performance in each release, so if you encounter performance
 regressions (an older pocl/LLVM version used to run an app faster), 
 please report a bug.
 
-Also you might want to try to set the `POCL_BBVECTORIZER` environment
-variable to 1. More info :doc:`here </env_variables>`.
-
 pocl source code
 ----------------
 
 Why C99 in host library?
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-The kernel compiler passes are in C++11 and it's much faster to implement
-things in C++11. Why use C99 in the host library?
+The kernel compiler passes and some of the driver implementations are in C++11
+and it's much faster to implement things in C++11. Why require using C99 in
+the host library?
 
 pocl is meant to be very portable to various type of devices, also
-to those with very little resources (no operating systems at all, simple
-runtime libraries). C has better portability to low end CPUs.
+to those with very little resources (no operating system at all and with pruned
+runtime libraries). C has better portability to low end CPUs and VMs.
 
 Thus, in order for a CPU to act as an OpenCL host without online kernel
-compilation support, now only C99 support is required from the target,
-no C++ compiler or C++ runtime is needed. Also, C programs are said to produce
-more "lightweight" binaries, but that is debatable.
+compilation support, only C99 support is required from the target,
+no C++ compiler, runtime or STL is needed. Also, C programs are said to
+sometimes produce more "lightweight" binaries, but that is debatable.
+Benchmarks
+==============
+
+CLPeak issues
+----------------
+
+Currently (Dec 2017) does not work. First, there's a global memory size
+detection bug in CLPeak which makes it fail on all OpenCL calls (this
+can be workarounded by using POCL_MEMORY_LIMIT=1). Second, compilation
+takes forever - this can't be fixed in pocl and needs to be fixed in
+either CLPeak or LLVM. CLPeak sources use recursive macros to create
+a giant stream of instructions. Certain optimization passes
+in LLVM seem to explode exponentially on this code. The second
+consequence of giant instruction stream is, it easily overflows the
+instruction caches of a CPU, therefore CLPeak results are highly
+dependent on whether the compiler manages to fit the code into icache,
+perhaps using loop re-rolling, and as such are not a reliable measure
+of peak device FLOPS.
+
+Luxmark issues
+---------------
+
+* Using the binary downloaded from www.luxmark.info might lead to pocl
+  abort on creating cache directory. This is not a bug in Pocl, it's a
+  consequence of the two programs (pocl & luxmark) having been compiled
+  with different libstdc++. Using a distribution packaged Luxmark
+  fixes this problem.
+
+* It's recommended to remove luxmark cache (~/.config/luxrender.net)
+  after updating pocl version.
+
+* There's another bug (http://www.luxrender.net/mantis/view.php?id=1640)
+  - it crashes after compiling kernels, because it doesn't recognize
+  an OpenCL device. This requires editing scenes/<name>/render.cfg,
+  you must add ``opencl.cpu.use = 0`` and ``film.opencl.device = 0``
+
+* All scenes (Microphone, Luxball and Hotel) should compile & run
+  with LLVM 6 and newer.

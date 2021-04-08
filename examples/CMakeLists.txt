@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2018 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -29,40 +29,51 @@
 #    pacman -S blas cblas lapack lapacke openmpi svn  freeimage  python-numpy python2-numpy  python-mako python2-mako
 #
 # on Ubuntu:
-#    apt-get install libblas-dev liblapack-dev  liblapacke-dev  libopenmpi-dev   subversion python-numpy python-mako
+#    apt-get install libblas-dev liblapack-dev  liblapacke-dev  libatlas-base-dev libopenmpi-dev   subversion python-numpy python-mako
 #
 
+add_subdirectory("example0")
 add_subdirectory("example1")
-add_subdirectory("example1-spir32")
-add_subdirectory("example1-spir64")
 add_subdirectory("example2")
 add_subdirectory("example2a")
+add_subdirectory("matrix1")
+
+if(ENABLE_ACCEL_DEVICE)
+  add_subdirectory("accel")
+endif()
+
 add_subdirectory("poclcc")
-add_subdirectory("scalarwave")
+if(ENABLE_FP64)
+  add_subdirectory("scalarwave")
+endif()
 add_subdirectory("trig")
+add_subdirectory("vecadd")
+add_subdirectory("matadd")
+add_subdirectory("boxadd")
 add_subdirectory("EinsteinToolkit")
 
 # TODO:   opencl-book-samples
 set(ALL_TESTSUITES
     AMD AMDSDK2.9 AMDSDK3.0
-    ASL arrayfire clBLAS clFFT
+    ASL arrayfire clBLAS CLBlast clFFT
     conformance CloverLeaf Halide IntelSVM
     opencl-book-samples OpenCV
     Parboil piglit PyOpenCL
-    Rodinia VexCL ViennaCL)
+    Rodinia shoc VexCL ViennaCL Glow)
 
 if("${ENABLE_TESTSUITES}" STREQUAL "all")
   set(ENABLE_TESTSUITES ${ALL_TESTSUITES})
+endif()
+
+if("${ENABLE_TESTSUITES}" MATCHES "tier1")
+  list(REMOVE_ITEM ENABLE_TESTSUITES "tier1")
+  list(APPEND ENABLE_TESTSUITES "AMDSDK3.0" "piglit" "conformance" "CLBlast" "shoc")
 endif()
 
 include(ExternalProject)
 
 # invoke this to build all examples
 add_custom_target(prepare_examples)
-
-find_program(MAKE_PROGRAM NAMES "make")
-find_package(Git QUIET)
-set_expr(HAVE_GIT GIT_EXECUTABLE)
 
 if(ENABLE_TESTSUITES)
 

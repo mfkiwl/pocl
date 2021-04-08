@@ -1,17 +1,17 @@
 // Implementation of LLVMUtils, useful common LLVM-related functionality.
-// 
-// Copyright (c) 2013 Pekka Jääskeläinen / TUT
-// 
+//
+// Copyright (c) 2013-2019 Pekka Jääskeläinen
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,11 +22,15 @@
 
 #include "LLVMUtils.h"
 
-#include "pocl.h"
+#include "pocl_spir.h"
+
+#include "CompilerWarnings.h"
+IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Metadata.h>
+#include <llvm/IR/Constants.h>
 
 using namespace llvm;
 
@@ -70,23 +74,28 @@ regenerate_kernel_metadata(llvm::Module &M, FunctionMapping &kernels)
               }
               MDNode *new_wg_md = MDNode::get(M.getContext(), operands);
               wg_sizes->addOperand(new_wg_md);
-            } 
+            }
         }
     }
 
-  // reproduce the opencl.kernels metadata
+  // reproduce the opencl.kernels metadata, if it exists
+  // unconditionally adding opencl.kernels confuses the
+  // metadata parser in pocl_llvm_metadata.cc, which uses
+  // "opencl.kernels" to distinguish old SPIR format from new
   NamedMDNode *nmd = M.getNamedMetadata("opencl.kernels");
-  if (nmd)
+  if (nmd) {
     M.eraseNamedMetadata(nmd);
 
-  nmd = M.getOrInsertNamedMetadata("opencl.kernels");
-  for (FunctionMapping::const_iterator i = kernels.begin(),
+    nmd = M.getOrInsertNamedMetadata("opencl.kernels");
+    for (FunctionMapping::const_iterator i = kernels.begin(),
          e = kernels.end();
        i != e; ++i) {
-    MDNode *md = MDNode::get(M.getContext(), ArrayRef<Metadata *>(
-      llvm::ValueAsMetadata::get((*i).second)));
-    nmd->addOperand(md);
+      MDNode *md = MDNode::get(M.getContext(), ArrayRef<Metadata *>(
+        llvm::ValueAsMetadata::get((*i).second)));
+      nmd->addOperand(md);
+    }
   }
+
 }
 
 void eraseFunctionAndCallers(llvm::Function *Function) {
@@ -104,4 +113,48 @@ void eraseFunctionAndCallers(llvm::Function *Function) {
   Function->eraseFromParent();
 }
 
+int getConstantIntMDValue(Metadata *MD) {
+#ifdef LLVM_OLDER_THAN_7_0
+  ConstantInt *CI = mdconst::dyn_extract<ConstantInt>(MD);
+#else
+  ConstantInt *CI = mdconst::extract<ConstantInt>(MD);
+#endif
+  return CI->getLimitedValue();
+}
+
+llvm::Metadata *createConstantIntMD(llvm::LLVMContext &C, int32_t Val) {
+  IntegerType *I32Type = IntegerType::get(C, 32);
+  return ConstantAsMetadata::get(ConstantInt::get(I32Type, Val));
+}
+
+bool isLocalMemFunctionArg(llvm::Function *F, unsigned ArgIndex) {
+
+  MDNode *MD = F->getMetadata("kernel_arg_addr_space");
+
+  if (MD == nullptr || MD->getNumOperands() <= ArgIndex)
+    return false;
+  else
+    return getConstantIntMDValue(MD->getOperand(ArgIndex)) ==
+           SPIR_ADDRESS_SPACE_LOCAL;
+}
+
+void setFuncArgAddressSpaceMD(llvm::Function *F, unsigned ArgIndex,
+                              unsigned AS) {
+
+  unsigned MDKind = F->getContext().getMDKindID("kernel_arg_addr_space");
+  MDNode *OldMD = F->getMetadata(MDKind);
+
+  assert(OldMD == nullptr || OldMD->getNumOperands() >= ArgIndex);
+
+  LLVMContext &C = F->getContext();
+
+  llvm::SmallVector<llvm::Metadata *, 8> AddressQuals;
+  for (unsigned i = 0; i < ArgIndex; ++i) {
+    AddressQuals.push_back(createConstantIntMD(
+        C, OldMD != nullptr ? getConstantIntMDValue(OldMD->getOperand(i))
+                            : SPIR_ADDRESS_SPACE_GLOBAL));
+  }
+  AddressQuals.push_back(createConstantIntMD(C, AS));
+  F->setMetadata(MDKind, MDNode::get(F->getContext(), AddressQuals));
+}
 }

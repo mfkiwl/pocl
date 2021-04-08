@@ -29,6 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern unsigned cl_context_count;
+extern pocl_lock_t pocl_context_handling_lock;
+
 /* in clCreateContext.c */
 int context_set_properties(cl_context                    ctx,
                            const cl_context_properties * properties,
@@ -41,21 +44,21 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
                         void *user_data,
                         cl_int *errcode_ret) CL_API_SUFFIX__VERSION_1_0
 {
-  int num_devices;
+  cl_uint i, num_devices;
+  cl_context context = NULL;
   int errcode;
-  int i;
   cl_device_id device_ptr;
+
+  POCL_LOCK (pocl_context_handling_lock);
 
   POCL_GOTO_ERROR_COND((pfn_notify == NULL && user_data != NULL), CL_INVALID_VALUE);
 
-  /* initialize libtool here, LT will be needed when loading the kernels */     
-  lt_dlinit();
   errcode = pocl_init_devices();
+  /* see clCreateContext.c for explanation */
+  POCL_GOTO_ERROR_ON ((errcode != CL_SUCCESS), errcode,
+                      "Could not initialize devices\n");
 
-  if (errcode)
-    goto ERROR;
-
-  cl_context context = (cl_context) malloc(sizeof(struct _cl_context));
+  context = (cl_context)calloc (1, sizeof (struct _cl_context));
   if (context == NULL)
   {
     errcode = CL_OUT_OF_HOST_MEMORY;
@@ -63,12 +66,11 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
   }
 
   POCL_INIT_OBJECT(context);
-  context->valid = 0;
 
   context_set_properties(context, properties, &errcode);
   if (errcode)
     {
-        goto ERROR_CLEAN_CONTEXT_AND_PROPERTIES;
+      goto ERROR;
     }
 
   num_devices = pocl_get_device_type_count(device_type);
@@ -83,6 +85,7 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
          works. This fixes AMD SDK OpenCL samples to work (as of 2012-12-05). */
       POCL_MSG_WARN("Couldn't find any device of type %lu; returning "
                     "a dummy context with 0 devices\n", (unsigned long)device_type);
+      POCL_UNLOCK (pocl_context_handling_lock);
       return context;
     }
 
@@ -103,9 +106,9 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
         {
           break;
         }
-      
+
       POname(clRetainDevice)(device_ptr);
-    } 
+    }
 
   pocl_setup_context(context);
 
@@ -114,17 +117,22 @@ POname(clCreateContextFromType)(const cl_context_properties *properties,
   if (errcode_ret != NULL)
     *errcode_ret = CL_SUCCESS;
   context->valid = 1;
+
+  cl_context_count += 1;
+  POCL_UNLOCK (pocl_context_handling_lock);
+
   return context;
 
-
 ERROR_CLEAN_CONTEXT_AND_PROPERTIES:
+  POCL_MEM_FREE (context->devices);
   POCL_MEM_FREE(context->properties);
-  POCL_MEM_FREE(context);
 ERROR:
+  POCL_MEM_FREE (context);
   if(errcode_ret)
   {
     *errcode_ret = errcode;
   }
+  POCL_UNLOCK (pocl_context_handling_lock);
   return NULL;
 }
 POsym(clCreateContextFromType)

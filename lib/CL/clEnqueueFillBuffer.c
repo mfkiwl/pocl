@@ -75,10 +75,13 @@ CL_API_SUFFIX__VERSION_1_2
                        "size(%zu) must be a multiple of pattern_size(%zu)\n",
                        size, pattern_size);
 
-  /* ############# TODO #############
-   * CL_MISALIGNED_SUB_BUFFER_OFFSET if buffer is a sub-buffer object
-   * and offset specified when the sub-buffer object is created is not aligned
-   * to CL_DEVICE_MEM_BASE_ADDR_ALIGN value for device associated with queue. */
+  POCL_RETURN_ON_SUB_MISALIGN (buffer, command_queue);
+
+  POCL_CONVERT_SUBBUFFER_OFFSET (buffer, offset);
+
+  POCL_RETURN_ERROR_ON((buffer->size > command_queue->device->max_mem_alloc_size),
+                        CL_OUT_OF_RESOURCES,
+                        "buffer is larger than device's MAX_MEM_ALLOC_SIZE\n");
 
   errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_FILL_BUFFER,
                                  event, num_events_in_wait_list,
@@ -86,9 +89,8 @@ CL_API_SUFFIX__VERSION_1_2
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  cmd->command.memfill.buffer = buffer;
-  cmd->command.memfill.ptr =
-      buffer->device_ptrs[command_queue->device->dev_id].mem_ptr;
+  cmd->command.memfill.dst_mem_id
+      = &buffer->device_ptrs[command_queue->device->dev_id];
   cmd->command.memfill.size = size;
   cmd->command.memfill.offset = offset;
   void *p = pocl_aligned_malloc(pattern_size, pattern_size);
@@ -98,7 +100,7 @@ CL_API_SUFFIX__VERSION_1_2
 
   POname(clRetainMemObject) (buffer);
   buffer->owning_device = command_queue->device;
-  
+
   pocl_command_enqueue(command_queue, cmd);
 
   return CL_SUCCESS;

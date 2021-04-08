@@ -25,6 +25,7 @@
 #include "pocl_cl.h"
 #include "devices.h"
 #include "common.h"
+#include "pocl_util.h"
 
 CL_API_ENTRY cl_mem CL_API_CALL
 POname(clCreateBuffer)(cl_context   context,
@@ -48,6 +49,7 @@ POname(clCreateBuffer)(cl_context   context,
       errcode = CL_OUT_OF_HOST_MEMORY;
       goto ERROR;
     }
+  mem->device_ptrs = NULL;
 
   if (flags == 0)
     flags = CL_MEM_READ_WRITE;
@@ -93,18 +95,12 @@ POname(clCreateBuffer)(cl_context   context,
         "host_ptr is not NULL, but flags don't specify {COPY|USE}_HOST_PTR\n");
     }
 
-  for (i = 0; i < context->num_devices; ++i)
-    {
-      cl_ulong max_alloc;
-      
-      POname(clGetDeviceInfo) (context->devices[i], 
-                               CL_DEVICE_MAX_MEM_ALLOC_SIZE, sizeof(cl_ulong), 
-                               &max_alloc, NULL);
-      POCL_GOTO_ERROR_ON((size > max_alloc), CL_INVALID_BUFFER_SIZE,
-        "Size (%lu) is bigger than CL_DEVICE_MAX_MEM_ALLOC_SIZE(%lu) of device %s\n",
-        (unsigned long)size, (unsigned long)max_alloc, context->devices[i]->long_name);
-    }
-  
+  POCL_GOTO_ERROR_ON ((size > context->max_mem_alloc_size),
+                      CL_INVALID_BUFFER_SIZE,
+                      "Size (%zu) is bigger than max mem alloc size (%zu) "
+                      "of all devices in context\n",
+                      size, context->max_mem_alloc_size);
+
   POCL_INIT_OBJECT(mem);
   mem->parent = NULL;
   mem->map_count = 0;
@@ -114,7 +110,6 @@ POname(clCreateBuffer)(cl_context   context,
   mem->type = CL_MEM_OBJECT_BUFFER;
   mem->flags = flags;
   mem->is_image = CL_FALSE;
-  mem->latest_event = NULL;
   mem->owning_device = NULL;
   mem->is_pipe = 0;
   mem->pipe_packet_size = 0;
@@ -126,11 +121,7 @@ POname(clCreateBuffer)(cl_context   context,
   mem->device_ptrs =
     (pocl_mem_identifier*) calloc(pocl_num_devices,
                                   sizeof(pocl_mem_identifier));
-  if (mem->device_ptrs == NULL)
-    {
-      errcode = CL_OUT_OF_HOST_MEMORY;
-      goto ERROR;
-    }
+  POCL_GOTO_ERROR_COND((mem->device_ptrs == NULL), CL_OUT_OF_HOST_MEMORY);
 
   /* init dev pointer structure to ease inter device pointer sharing
      in ops->alloc_mem_obj */
@@ -166,8 +157,6 @@ POname(clCreateBuffer)(cl_context   context,
       if (context->svm_allocdev == context->devices[i])
         continue;
 
-      if (i > 0)
-        POname(clRetainMemObject) (mem);
       device = context->devices[i];
       assert (device->ops->alloc_mem_obj != NULL);
       if (device->ops->alloc_mem_obj (device, mem, host_ptr) != CL_SUCCESS)
@@ -181,19 +170,19 @@ POname(clCreateBuffer)(cl_context   context,
   if ((flags & CL_MEM_ALLOC_HOST_PTR) && (mem->mem_host_ptr == NULL))
     {
       assert(mem->shared_mem_allocation_owner == NULL);
-      mem->mem_host_ptr = pocl_memalign_alloc (MAX_EXTENDED_ALIGNMENT, size);
+      mem->mem_host_ptr = pocl_aligned_malloc (MAX_EXTENDED_ALIGNMENT, size);
       if (mem->mem_host_ptr == NULL)
         {
           errcode = CL_OUT_OF_HOST_MEMORY;
-          goto ERROR;
+          goto ERROR_CLEAN_MEM_AND_DEVICE;
         }
     }
 
   POCL_RETAIN_OBJECT(context);
 
   POCL_MSG_PRINT_MEMORY (
-      "Created Buffer %p, HOST_PTR: %p, DEVICE_PTR[0]: %p \n", mem,
-      mem->mem_host_ptr, mem->device_ptrs[0].mem_ptr);
+      "Created Buffer %p, HOST_PTR: %p, DEVICE_PTR[0]: %p SIZE %zu \n", mem,
+      mem->mem_host_ptr, mem->device_ptrs[0].mem_ptr, size);
 
   if (errcode_ret != NULL)
     *errcode_ret = CL_SUCCESS;
@@ -206,6 +195,8 @@ ERROR_CLEAN_MEM_AND_DEVICE:
       device->ops->free(device, mem);
     }
 ERROR:
+  if (mem)
+    POCL_MEM_FREE (mem->device_ptrs);
   POCL_MEM_FREE(mem);
   if(errcode_ret)
     {

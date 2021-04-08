@@ -25,7 +25,7 @@
 
 include("bitcode_rules")
 
-set(KERNEL_SOURCES ${SOURCES_WITHOUT_VML})
+set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
 foreach(FILE printf.c get_local_id.c get_local_size.c get_group_id.c get_global_size.c
     get_num_groups.c get_work_dim.c get_global_id.c barrier.ll)
@@ -39,13 +39,9 @@ endforeach()
 
 set(CLANG_FLAGS "-emit-llvm" "-target" "amdgcn--amdhsa" "-mcpu=kaveri")
 
-if(POCL_USE_FAKE_ADDR_SPACE_IDS)
-list(APPEND CLANG_FLAGS "-Xclang" "-ffake-address-space-map")
-endif()
-
 set(LLC_FLAGS "")
 
-make_kernel_bc(KERNEL_BC "amdgcn--amdhsa" "gcn" ${KERNEL_SOURCES})
+make_kernel_bc(KERNEL_BC "amdgcn--amdhsa" "gcn" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
 message(STATUS "AMDGCN Kernel BC: ${KERNEL_BC}")
@@ -60,4 +56,4 @@ list(APPEND KERNEL_TARGET_LIST "kernel_amdgcn")
 set(KERNEL_TARGET_LIST "${KERNEL_TARGET_LIST}" PARENT_SCOPE)
 
 install(FILES "${KERNEL_BC}"
-        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}")
+        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}" COMPONENT "lib")

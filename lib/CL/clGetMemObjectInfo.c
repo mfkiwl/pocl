@@ -42,7 +42,13 @@ POname(clGetMemObjectInfo)(cl_mem      memobj ,
   case CL_MEM_SIZE:
     POCL_RETURN_GETINFO (size_t, memobj->size);
   case CL_MEM_HOST_PTR:
-    POCL_RETURN_GETINFO (void *, memobj->mem_host_ptr);
+    if (memobj->flags & CL_MEM_USE_HOST_PTR)
+      POCL_RETURN_GETINFO (
+          void *,
+          (memobj->parent ? (memobj->parent->mem_host_ptr + memobj->origin)
+                          : memobj->mem_host_ptr));
+    else
+      POCL_RETURN_GETINFO (void *, NULL);
   case CL_MEM_MAP_COUNT:
     POCL_RETURN_GETINFO (cl_uint, memobj->map_count);
   case CL_MEM_REFERENCE_COUNT:
@@ -51,6 +57,8 @@ POname(clGetMemObjectInfo)(cl_mem      memobj ,
     POCL_RETURN_GETINFO (cl_context, memobj->context);
   case CL_MEM_ASSOCIATED_MEMOBJECT:
     POCL_RETURN_GETINFO (cl_mem, memobj->parent);
+  case CL_MEM_USES_SVM_POINTER:
+    POCL_RETURN_GETINFO (cl_bool, CL_FALSE);
   case CL_MEM_OFFSET:
     if (memobj->parent == NULL)
       POCL_RETURN_GETINFO (size_t, 0);

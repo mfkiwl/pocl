@@ -44,14 +44,18 @@ POname(clSetKernelArgSVMPointer)(cl_kernel kernel,
   mem->mappings = NULL;
   mem->type = CL_MEM_OBJECT_BUFFER;
   mem->flags = CL_MEM_USE_HOST_PTR | CL_MEM_READ_WRITE;
-  mem->device_ptrs = NULL;
-  mem->latest_event = NULL;
+  mem->device_ptrs = (pocl_mem_identifier *)calloc (
+      pocl_num_devices, sizeof (pocl_mem_identifier));
+  cl_device_id d = kernel->context->svm_allocdev;
+  mem->device_ptrs[d->dev_id].global_mem_id = d->global_mem_id;
+  mem->device_ptrs[d->dev_id].mem_ptr = (void *)arg_value;
+
   mem->owning_device = NULL;
   mem->is_image = CL_FALSE;
   mem->is_pipe = 0;
   mem->pipe_packet_size = 0;
   mem->pipe_max_packets = 0;
-  //mem->size = size;  TODO
+  mem->size = MAX_EXTENDED_ALIGNMENT;
   mem->context = kernel->context;
 
   POCL_MSG_PRINT_INFO("Setting kernel ARG %i to SVM %p using cl_mem: %p\n", arg_index, arg_value, mem);

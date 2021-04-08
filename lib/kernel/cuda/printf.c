@@ -28,7 +28,7 @@ void __cl_va_arg(va_list ap, char data[], int num_words);
 int vprintf(const char*, char*);
 
 int
-__cl_printf(__attribute__((address_space(4))) char* restrict format, ...)
+printf(__attribute__((address_space(4))) char* restrict format, ...)
 {
   // TODO: Might need more than 2 words for (e.g.) vectors
   char arg_data[8];
@@ -58,6 +58,12 @@ __cl_printf(__attribute__((address_space(4))) char* restrict format, ...)
             vprintf("%d", arg_data);
             break;
           }
+          case 'x':
+          {
+            __cl_va_arg(ap, arg_data, 1);
+            vprintf("%x", arg_data);
+            break;
+          }
           case 'f':
           {
             __cl_va_arg(ap, arg_data, 2);
@@ -70,7 +76,11 @@ __cl_printf(__attribute__((address_space(4))) char* restrict format, ...)
             vprintf("%s", arg_data);
             break;
           }
-          default: goto error;
+          default:
+          {
+            vprintf("<format error>", &ch);
+            break;
+          }
         }
         ch = *++format;
       }
@@ -83,9 +93,4 @@ __cl_printf(__attribute__((address_space(4))) char* restrict format, ...)
 
   va_end(ap);
   return 0;
-
-  error:
-  va_end(ap);
-  vprintf("(printf format string error)", &ch);
-  return -1;
 }

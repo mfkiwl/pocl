@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2014-2020 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -23,47 +23,57 @@
 #
 #=============================================================================
 
-add_subdirectory("pthread")
-add_subdirectory("basic")
-add_subdirectory("topology")
-if(Hwloc_LDFLAGS)
-  set(POCL_DEVICES_LINK_LIST ${Hwloc_LDFLAGS})
-else()
-  set(POCL_DEVICES_LINK_LIST ${Hwloc_LIBRARIES})
+function(add_pocl_device_library name)
+  add_library(${name} SHARED ${ARGN})
+  harden("${name}")
+  target_link_libraries(${name} PUBLIC ${POCL_PUBLIC_LINK_LIST} PRIVATE ${POCL_LIBRARY_NAME} ${POCL_PRIVATE_LINK_LIST})
+  set_target_properties(${name} PROPERTIES PREFIX "lib" SUFFIX ".so")
+  install(TARGETS ${name} LIBRARY DESTINATION "${POCL_INSTALL_PRIVATE_LIBDIR}" COMPONENT "lib")
+endfunction()
+
+if(BUILD_BASIC)
+  add_subdirectory("basic")
 endif()
 
+if(BUILD_PTHREAD)
+  add_subdirectory("pthread")
+endif()
+
+if(BUILD_ACCEL)
+  add_subdirectory("accel")
+endif()
+
+add_subdirectory("topology")
+
 set(POCL_DEVICES_OBJS "$<TARGET_OBJECTS:pocl-devices>"
-      "$<TARGET_OBJECTS:pocl-devices-pthread>"
-      "$<TARGET_OBJECTS:pocl-devices-basic>"
-      "$<TARGET_OBJECTS:pocl-devices-topology>")
+  "$<TARGET_OBJECTS:pocl-devices-topology>")
 
 if(ENABLE_TCE)
   include_directories(AFTER "tce")
   add_subdirectory("tce")
-  list(APPEND POCL_DEVICES_LINK_LIST ${TCE_LIBS})
 endif()
 
 if(ENABLE_HSA)
   include_directories(AFTER "${HSA_INCLUDES}")
   add_subdirectory("hsa")
-  list(APPEND POCL_DEVICES_LINK_LIST ${HSALIB})
 endif()
 
 if(ENABLE_CUDA)
   add_subdirectory("cuda")
-  list(APPEND POCL_DEVICES_LINK_LIST cuda)
 endif()
 
 set(POCL_DEVICES_SOURCES
   devices.h  devices.c
-  bufalloc.c  dev_image.h
+  bufalloc.c
   common.h common.c
+  pocl_local_size.h pocl_local_size.c
   bufalloc.h  cpuinfo.c cpuinfo.h)
 
 if(MSVC)
   set_source_files_properties( ${POCL_DEVICES_SOURCES} PROPERTIES LANGUAGE CXX )
 endif(MSVC)
 add_library("pocl-devices" OBJECT ${POCL_DEVICES_SOURCES})
+harden("pocl-devices")
 
 set(POCL_DEVICES_LINK_LIST ${POCL_DEVICES_LINK_LIST} PARENT_SCOPE)
 set(POCL_DEVICES_OBJS ${POCL_DEVICES_OBJS} PARENT_SCOPE)

@@ -36,9 +36,9 @@
 
 #include "pocl_device.h"
 
-#define __local__ __attribute__((address_space(0)))
-#define __global__ __attribute__((address_space(3)))
-#define __constant__ __attribute__((address_space(3)))
+#define __local__ __attribute__((address_space(3)))
+#define __global__ __attribute__((address_space(1)))
+#define __constant__ __attribute__((address_space(2)))
 
 typedef volatile __global__ __kernel_exec_cmd kernel_exec_cmd;
 typedef __global__ __kernel_metadata kernel_metadata;
@@ -76,7 +76,7 @@ static void *wg_thread(void *targ) {
     const int num_groups_y = (cmd->work_dim >= 2) ? (cmd->num_groups[1]) : 1;
     const int num_groups_z = (cmd->work_dim == 3) ? (cmd->num_groups[2]) : 1;
 
-    struct pocl_context context;
+    struct pocl_context32 context;
     context.work_dim = cmd->work_dim;
     context.num_groups[0] = cmd->num_groups[0];
     context.num_groups[1] = cmd->num_groups[1];

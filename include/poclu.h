@@ -82,9 +82,18 @@ poclu_create_any_context();
  * All input parameters must be allocated by caller!
  * Returns CL_SUCCESS on success, or a descriptive OpenCL error code upon failure.
  */
-POCLU_API cl_int POCLU_CALL
-poclu_get_any_device( cl_context *context, cl_device_id *device, cl_command_queue *queue);
+POCLU_API cl_int POCLU_CALL poclu_get_any_device2 (cl_context *context,
+                                                   cl_device_id *device,
+                                                   cl_command_queue *queue,
+                                                   cl_platform_id *platform);
 
+POCLU_API cl_int POCLU_CALL poclu_get_any_device (cl_context *context,
+                                                  cl_device_id *device,
+                                                  cl_command_queue *queue);
+
+POCLU_API cl_int POCLU_CALL poclu_get_multiple_devices (
+    cl_platform_id *platform, cl_context *context, cl_uint *num_devices,
+    cl_device_id **devices, cl_command_queue **queues);
 /**
  * cl_half related helpers.
  */
@@ -96,27 +105,39 @@ poclu_cl_half_to_float(cl_half value);
 
 /* Read content of file to a malloc'd buffer, which is returned.
  * Return NULL on errors */
-POCLU_API char * POCLU_CALL
-poclu_read_file(char* filemane);
+POCLU_API char *POCLU_CALL poclu_read_file (const char *filemane);
 
-POCLU_API char * POCLU_CALL
-poclu_read_binfile(char *filename, size_t *len);
+POCLU_API char *POCLU_CALL poclu_read_binfile (const char *filename,
+                                               size_t *len);
 
-POCLU_API int POCLU_CALL
-poclu_write_file(char* filemane, char* content, size_t size);
+POCLU_API int POCLU_CALL poclu_write_file (const char *filemane, char *content,
+                                           size_t size);
 
+int poclu_load_program (cl_context context, cl_device_id device,
+                        const char *basename, int spir, int spirv, int poclbin,
+                        const char *explicit_binary,
+                        const char *extra_build_opts, cl_program *p);
 
-/* In case cl_err != CL_SUCCESS, prints out the error + function : line to stderr,
- * and returns 1, otherwise returns 0
+int poclu_load_program_multidev (cl_context context, cl_device_id *devices,
+                                 cl_uint num_devices, const char *basename,
+                                 int spir, int spirv, int poclbin,
+                                 const char *explicit_binary,
+                                 const char *extra_build_opts, cl_program *p);
+
+/* In case cl_err != CL_SUCCESS, prints out the error +
+ * function : line to stderr, and returns 1, otherwise
+ * returns 0
  */
-POCLU_API int POCLU_CALL
-check_cl_error(cl_int cl_err, int line, const char* func_name);
+POCLU_API int POCLU_CALL check_cl_error (cl_int cl_err, int line,
+                                         const char *func_name);
 
-#define _POCLU_CHECK_CL_ERROR_INNER(cond, func, line)                   \
-do {                                                                    \
-   if(check_cl_error(cond, line, func))                                 \
-     exit(EXIT_FAILURE);                                                \
-} while (0)
+#define _POCLU_CHECK_CL_ERROR_INNER(cond, func, line)                         \
+  do                                                                          \
+    {                                                                         \
+      if (check_cl_error (cond, line, func))                                  \
+        return (EXIT_FAILURE);                                                \
+    }                                                                         \
+  while (0)
 
 #define CHECK_CL_ERROR(cond) _POCLU_CHECK_CL_ERROR_INNER(cond, __PRETTY_FUNCTION__, __LINE__)
 
@@ -131,6 +152,10 @@ do {                                                                    \
     return EXIT_FAILURE;                                                \
   }                                                                     \
 } while (0)
+
+#define CHECK_CL_ERROR2(err)                                                  \
+  if (check_cl_error (err, __LINE__, __PRETTY_FUNCTION__))                    \
+  goto ERROR
 
 #ifdef __cplusplus
 }

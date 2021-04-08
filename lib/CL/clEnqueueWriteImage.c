@@ -23,12 +23,23 @@ POname(clEnqueueWriteImage)(cl_command_queue    command_queue,
 
   POCL_RETURN_ERROR_COND((ptr == NULL), CL_INVALID_VALUE);
 
+  if (IS_IMAGE1D_BUFFER (image))
+    {
+      IMAGE1D_ORIG_REG_TO_BYTES (image, origin, region);
+      return POname (clEnqueueWriteBuffer) (
+          command_queue, image,
+          blocking_write,
+          i1d_origin[0], i1d_region[0],
+          ptr,
+          num_events_in_wait_list, event_wait_list, event);
+    }
+
   POCL_RETURN_ERROR_ON((command_queue->context != image->context),
     CL_INVALID_CONTEXT, "image and command_queue are not from the same context\n");
 
-  POCL_RETURN_ERROR_ON (
-      (!command_queue->device->image_support), CL_INVALID_OPERATION,
-      "Device %s does not support images\n", command_queue->device->long_name);
+  POCL_RETURN_ERROR_ON ((!image->is_image), CL_INVALID_MEM_OBJECT,
+                        "image argument is not an image\n");
+  POCL_RETURN_ON_UNSUPPORTED_IMAGE (image, command_queue->device);
 
   errcode = pocl_check_event_wait_list (command_queue, num_events_in_wait_list,
                                         event_wait_list);
@@ -53,13 +64,6 @@ POname(clEnqueueWriteImage)(cl_command_queue    command_queue,
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  size_t tuned_origin[3] = 
-    {origin[0] * image->image_elem_size * image->image_channels, origin[1], 
-     origin[2]};
-  size_t tuned_region[3] = 
-    {region[0] * image->image_elem_size * image->image_channels, region[1], 
-     region[2]};
-
   errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_WRITE_IMAGE,
                                 event, num_events_in_wait_list, 
                                 event_wait_list, 1, &image);
@@ -68,22 +72,23 @@ POname(clEnqueueWriteImage)(cl_command_queue    command_queue,
       return errcode;
     }  
 
-  memcpy ((cmd->command.write_image.origin), tuned_origin, 3*sizeof (size_t));
-  memcpy ((cmd->command.write_image.region), tuned_region, 3*sizeof (size_t));
-  cmd->command.write_image.b_rowpitch = image->image_row_pitch;
-  cmd->command.write_image.b_slicepitch = image->image_slice_pitch;
-  cmd->command.write_image.h_rowpitch
-      = (input_row_pitch ? input_row_pitch : tuned_region[0]);
-  cmd->command.write_image.h_slicepitch
-      = (input_slice_pitch ? input_slice_pitch
-                           : (tuned_region[0] * region[1]));
 
-  HANDLE_IMAGE1D_BUFFER (image);
+  cl_device_id dev = command_queue->device;
 
-  cmd->command.write_image.buffer = image;
-  cmd->command.write_image.device_ptr
-      = image->device_ptrs[command_queue->device->dev_id].mem_ptr;
-  cmd->command.write_image.host_ptr = (void *)ptr;
+  cmd->command.write_image.dst_mem_id = &image->device_ptrs[dev->dev_id];
+  cmd->command.write_image.src_host_ptr = ptr;
+  cmd->command.write_image.src_mem_id = NULL;
+
+  cmd->command.write_image.origin[0] = origin[0];
+  cmd->command.write_image.origin[1] = origin[1];
+  cmd->command.write_image.origin[2] = origin[2];
+  cmd->command.write_image.region[0] = region[0];
+  cmd->command.write_image.region[1] = region[1];
+  cmd->command.write_image.region[2] = region[2];
+
+  cmd->command.write_image.src_row_pitch = input_row_pitch;
+  cmd->command.write_image.src_slice_pitch = input_slice_pitch;
+  cmd->command.write_image.src_offset = 0;
 
   POname(clRetainMemObject) (image);
   image->owning_device = command_queue->device;

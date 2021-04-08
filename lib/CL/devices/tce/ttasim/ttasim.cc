@@ -1,17 +1,18 @@
-/* ttasim.cc - a pocl device driver for simulating TTA devices using TCE's ttasim
+/* ttasim.cc - a pocl device driver for simulating TTA devices using TCE's
+   ttasim
 
-   Copyright (c) 2012-2015 Pekka Jääskeläinen / Tampere University of Technology
-   
+   Copyright (c) 2012-2019 Pekka Jääskeläinen / Tampere University
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
    in the Software without restriction, including without limitation the rights
    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
    copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -64,6 +65,8 @@
 #include "tce_common.h"
 #include "devices.h"
 
+#define DEFAULT_WG_SIZE 8192
+
 using namespace TTAMachine;
 
 static void *pocl_ttasim_thread (void *p);
@@ -74,11 +77,10 @@ pocl_ttasim_init_device_ops(struct pocl_device_ops *ops)
   ops->device_name = "ttasim";
 
   ops->probe = pocl_ttasim_probe;
-  ops->init_device_infos = pocl_ttasim_init_device_infos;
   ops->uninit = pocl_ttasim_uninit;
+  ops->reinit = NULL;
   ops->init = pocl_ttasim_init;
   ops->alloc_mem_obj = pocl_tce_alloc_mem_obj;
-  ops->create_sub_buffer = pocl_tce_create_sub_buffer;
   ops->free = pocl_tce_free;
   ops->read = pocl_tce_read;
   ops->read_rect = pocl_tce_read_rect;
@@ -87,8 +89,8 @@ pocl_ttasim_init_device_ops(struct pocl_device_ops *ops)
   ops->copy = pocl_tce_copy;
   ops->copy_rect = pocl_tce_copy_rect;
   ops->map_mem = pocl_tce_map_mem;
+  ops->unmap_mem = pocl_tce_unmap_mem;
   ops->run = pocl_tce_run;
-  ops->get_timer_value = pocl_ttasim_get_timer_value;
   ops->init_build = pocl_tce_init_build;
   ops->flush = pocl_tce_flush;
   ops->join = pocl_tce_join;
@@ -96,74 +98,10 @@ pocl_ttasim_init_device_ops(struct pocl_device_ops *ops)
   ops->compile_kernel = pocl_tce_compile_kernel;
   ops->broadcast = pocl_broadcast;
   ops->notify = pocl_tce_notify;
-  ops->update_event = NULL; //pocl_ttasim_update_event;
   ops->build_hash = pocl_tce_build_hash;
-
+  ops->get_device_info_ext = NULL;
 }
 
-
-void
-pocl_ttasim_init_device_infos(unsigned j, struct _cl_device_id* dev)
-{
-  dev->type = CL_DEVICE_TYPE_GPU;
-  dev->max_compute_units = 1;
-  dev->max_work_item_dimensions = 3;
-  dev->max_work_item_sizes[0] = dev->max_work_item_sizes[1] =
-	  dev->max_work_item_sizes[2] = dev->max_work_group_size = 8192;
-  dev->preferred_wg_size_multiple = 8;
-  dev->preferred_vector_width_char = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_CHAR;
-  dev->preferred_vector_width_short = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_SHORT;
-  dev->preferred_vector_width_int = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_INT;
-  dev->preferred_vector_width_long = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_LONG;
-  dev->preferred_vector_width_float = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_FLOAT;
-  dev->preferred_vector_width_double = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_DOUBLE;
-  dev->preferred_vector_width_half = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_HALF;
-  /* TODO: figure out what the difference between preferred and native widths are. */
-  dev->native_vector_width_char = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_CHAR;
-  dev->native_vector_width_short = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_SHORT;
-  dev->native_vector_width_int = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_INT;
-  dev->native_vector_width_long = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_LONG;
-  dev->native_vector_width_float = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_FLOAT;
-  dev->native_vector_width_double = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_DOUBLE;
-  dev->native_vector_width_half = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_HALF;
-  dev->max_clock_frequency = 100;
-  dev->image_support = CL_FALSE;
-  dev->single_fp_config = CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN;
-  dev->double_fp_config = CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN;
-  dev->global_mem_cache_type = CL_NONE;
-  dev->local_mem_type = CL_GLOBAL;
-  dev->error_correction_support = CL_FALSE;
-  dev->host_unified_memory = CL_FALSE;
-  dev->endian_little = CL_FALSE;
-  dev->available = CL_TRUE;
-  dev->compiler_available = CL_TRUE;
-  dev->spmd = CL_FALSE;
-  dev->workgroup_pass = CL_TRUE;
-  dev->execution_capabilities = CL_EXEC_KERNEL;
-  dev->queue_properties = CL_QUEUE_PROFILING_ENABLE;
-  dev->vendor = "TTA-Based Co-design Environment";
-  dev->profile = "EMBEDDED_PROFILE";
-  dev->extensions = TCE_DEVICE_EXTENSIONS;
-  dev->llvm_target_triplet = "tce-tut-llvm";
-  dev->has_64bit_long = 1;
-  dev->autolocals_to_args = 1;
-
-  dev->global_as_id = 3;
-  dev->local_as_id = 4;
-  dev->constant_as_id = 5;
-
-  SETUP_DEVICE_CL_VERSION(TCE_DEVICE_CL_VERSION_MAJOR, TCE_DEVICE_CL_VERSION_MINOR);
-
-  dev->parent_device = NULL;
-  // ttasim does not support partitioning
-  dev->max_sub_devices = 1;
-  dev->num_partition_properties = 1;
-  dev->partition_properties = (cl_device_partition_property*)calloc(dev->num_partition_properties,
-    sizeof(cl_device_partition_property));
-  dev->num_partition_types = 0;
-  dev->partition_type = NULL;
-
-}
 
 unsigned int
 pocl_ttasim_probe(struct pocl_device_ops *ops)
@@ -188,7 +126,7 @@ public:
     const char *adf = strrchr(adfName, '/');
     if (adf != NULL) adf++;
     if (snprintf (dev_name, 256, "ttasim-%s", adf) < 0)
-      POCL_ABORT("Unable to generate the device name string.");
+      POCL_ABORT("Unable to generate the device name string.\n");
     dev->long_name = strdup(dev_name);  
     ++device_count;
 
@@ -196,6 +134,19 @@ public:
     Application::setSignalHandler(SIGINT, *ctrlcHandler);
 
     setMachine(simulator.machine());
+    if (machine_->isLittleEndian()) {
+      dev->endian_little = CL_TRUE;
+      dev->llvm_target_triplet = "tcele-tut-llvm";
+    } else {
+      dev->endian_little = CL_FALSE;
+      dev->llvm_target_triplet = "tce-tut-llvm";
+    }
+
+#if defined(WORDS_BIGENDIAN) && WORDS_BIGENDIAN == 1
+    needsByteSwap = ((dev->endian_little == CL_TRUE) ? true : false);
+#else
+    needsByteSwap = ((dev->endian_little == CL_TRUE) ? false : true);
+#endif
 
     initMemoryManagement(simulator.machine());
 
@@ -218,7 +169,15 @@ public:
       unsigned char val = ((char*)host_ptr)[i];
       globalMem->write (dest_addr + i, (Memory::MAU)(val));
     }
+  }
 
+  virtual void copyDeviceToDevice(uint32_t src_addr, uint32_t dest_addr, size_t count) {
+    MemorySystem &mems = simulator.memorySystem();
+    MemorySystem::MemoryPtr globalMem = mems.memory (*global_as);
+    for (std::size_t i = 0; i < count; ++i) {
+      unsigned char val =  globalMem->read (src_addr + i);
+      globalMem->write (dest_addr + i, (Memory::MAU)(val));
+    }
   }
 
   virtual void copyDeviceToHost(uint32_t src_addr, const void *host_ptr, 
@@ -264,7 +223,7 @@ public:
     if (!produceStandAloneProgram_) return;
 
     static int runCounter = 0;
-    TCEString tempDir = run_cmd->tmp_dir;
+    TCEString tempDir((const char*)run_cmd->device_data);
     TCEString baseFname = tempDir + "/";
     baseFname << "standalone_" << runCounter;
 
@@ -273,12 +232,12 @@ public:
 
     std::ofstream out(fname.c_str());
 
-    out << "#include <lwpr.h>" << std::endl;
+    out << " <lwpr.h>" << std::endl;
     out << "#include <pocl_device.h>" << std::endl << std::endl;
 
-    out << "#define __local__ __attribute__((address_space(0)))" << std::endl;
-    out << "#define __global__ __attribute__((address_space(3)))" << std::endl;
-    out << "#define __constant__ __attribute__((address_space(3)))" << std::endl << std::endl;
+    out << "#define __local__ __attribute__((address_space(" <<  TTA_ASID_LOCAL<< ")))" << std::endl;
+    out << "#define __global__ __attribute__((address_space(" << TTA_ASID_GLOBAL << ")))" << std::endl;
+    out << "#define __constant__ __attribute__((address_space( " << TTA_ASID_CONSTANT << " )))" << std::endl << std::endl;
     out << "typedef volatile __global__ __kernel_exec_cmd kernel_exec_cmd;" << std::endl;
 
     /* Need to byteswap back as we are writing C code. */
@@ -292,10 +251,12 @@ public:
        the original one. */
 
     /* Create the global buffers along with their initialization data. */
-    for (size_t i = 0; i < run_cmd->kernel->num_args; ++i)
+    cl_kernel kernel = run_cmd->kernel;
+    pocl_kernel_metadata_t *meta = kernel->meta;
+    for (size_t i = 0; i < meta->num_args; ++i)
       {
         struct pocl_argument *al = &(run_cmd->arguments[i]);
-        if (run_cmd->kernel->arg_info[i].type == POCL_ARG_TYPE_POINTER)
+        if (meta->arg_info[i].type == POCL_ARG_TYPE_POINTER)
           {
             if (al->value == NULL) continue;
             unsigned start_addr = 
@@ -315,8 +276,8 @@ public:
               if (c % 32 == 31) out << std::endl << "\t";
             }
             out << std::endl << "}; " << std::endl << std::endl;
-          } 
-        else if (!run_cmd->kernel->arg_info[i].is_local)
+          }
+        else if (!ARG_IS_LOCAL (meta->arg_info[i]))
           {
             /* Scalars are stored to global buffers automatically. Dump them to buffers. */
             unsigned start_addr = BSWAP(dev_cmd.args[i]);
@@ -368,18 +329,18 @@ public:
 
     out << "\tkernel_command.kernel = (uint32_t)&" << kernelMdSymbolName << ";" << std::endl;
     size_t a = 0;
-    for (; a < run_cmd->kernel->num_args + run_cmd->kernel->num_locals; ++a)
+    for (; a < meta->num_args; ++a)
       {
         struct pocl_argument *al = &(run_cmd->arguments[a]);
         out << "\tkernel_command.args[" << std::dec << a << "] = ";
-        
-        if (run_cmd->kernel->arg_info[a].is_local || a >= run_cmd->kernel->num_args)
+
+        if (ARG_IS_LOCAL (meta->arg_info[a]))
           {
             /* Local buffers are managed by the host so the local
                addresses are already valid. */
             out << "(uint32_t)" << "0x" << std::hex << BSWAP(dev_cmd.args[a]);
           }
-        else if (run_cmd->kernel->arg_info[a].type == POCL_ARG_TYPE_POINTER && dev_cmd.args[a] != 0)
+        else if (meta->arg_info[a].type == POCL_ARG_TYPE_POINTER && dev_cmd.args[a] != 0)
           {
             unsigned start_addr = 
               ((chunk_info_t*)((*(cl_mem *) (al->value))->device_ptrs[parent->dev_id].mem_ptr))->start_address;
@@ -396,6 +357,13 @@ public:
         out << ";" << std::endl;
     }   
     
+    for (; a < meta->num_locals; ++a)
+      {
+        out << "\tkernel_command.args[" << std::dec << (meta->num_args + a) << "] = ";
+        out << "(uint32_t)" << "0x" << std::hex << BSWAP(dev_cmd.args[meta->num_args + a]);
+        out << ";" << std::endl;
+      }
+
     //    out << "\tlwpr_print_str(\"tta: initialized the standalone kernel lauch\\n\");" << std::endl;
     out << "}" << std::endl;     
     out.close();
@@ -490,7 +458,7 @@ pocl_ttasim_thread (void *p)
 
         if (d->simulator.hadRuntimeError()) {
             d->simulatorCLI.run();
-            POCL_ABORT("Runtime error in a ttasim device.");
+            POCL_ABORT("Runtime error in a ttasim device.\n");
         }
     } while (false);
   } while (true);
@@ -531,65 +499,118 @@ private:
 
 
 cl_int
-pocl_ttasim_init (unsigned j, cl_device_id device, const char* parameters)
+pocl_ttasim_init (unsigned j, cl_device_id dev, const char* parameters)
 {
   if (parameters == NULL)
     POCL_ABORT("The tta device requires the adf file as a device parameter.\n"
                "Set it with POCL_TTASIMn_PARAMETERS=\"path/to/themachine.adf\".\n");
 
-  new TTASimDevice(device, parameters);
+  dev->type = CL_DEVICE_TYPE_GPU;
+  dev->max_compute_units = 1;
+  dev->max_work_item_dimensions = 3;
+  dev->device_side_printf = 0;
+
+  int max_wg
+      = pocl_get_int_option ("POCL_MAX_WORK_GROUP_SIZE", DEFAULT_WG_SIZE);
+  assert (max_wg > 0);
+  max_wg = std::min (max_wg, DEFAULT_WG_SIZE);
+  if (max_wg < 0)
+    max_wg = DEFAULT_WG_SIZE;
+
+  dev->max_work_item_sizes[0] = dev->max_work_item_sizes[1]
+      = dev->max_work_item_sizes[2] = dev->max_work_group_size = max_wg;
+
+  dev->preferred_wg_size_multiple = 8;
+  dev->preferred_vector_width_char = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_CHAR;
+  dev->preferred_vector_width_short
+      = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_SHORT;
+  dev->preferred_vector_width_int = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_INT;
+  dev->preferred_vector_width_long = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_LONG;
+  dev->preferred_vector_width_float
+      = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_FLOAT;
+  dev->preferred_vector_width_double
+      = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_DOUBLE;
+  dev->preferred_vector_width_half = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_HALF;
+  /* TODO: figure out what the difference between preferred and native widths
+   * are. */
+  dev->native_vector_width_char = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_CHAR;
+  dev->native_vector_width_short = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_SHORT;
+  dev->native_vector_width_int = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_INT;
+  dev->native_vector_width_long = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_LONG;
+  dev->native_vector_width_float = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_FLOAT;
+  dev->native_vector_width_double = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_DOUBLE;
+  dev->native_vector_width_half = POCL_DEVICES_PREFERRED_VECTOR_WIDTH_HALF;
+  dev->max_clock_frequency = 100;
+  dev->image_support = CL_FALSE;
+  dev->single_fp_config = CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN;
+  dev->double_fp_config = CL_FP_ROUND_TO_NEAREST | CL_FP_INF_NAN;
+  dev->global_mem_cache_type = CL_NONE;
+  dev->local_mem_type = CL_GLOBAL;
+  dev->error_correction_support = CL_FALSE;
+  dev->host_unified_memory = CL_FALSE;
+
+  dev->available = CL_TRUE;
+  dev->compiler_available = CL_TRUE;
+  dev->spmd = CL_FALSE;
+  dev->workgroup_pass = CL_TRUE;
+  dev->execution_capabilities = CL_EXEC_KERNEL;
+  dev->queue_properties = CL_QUEUE_PROFILING_ENABLE;
+  dev->vendor = "TTA-Based Co-design Environment";
+  dev->profile = "EMBEDDED_PROFILE";
+  dev->extensions = TCE_DEVICE_EXTENSIONS;
+
+  dev->has_64bit_long = 1;
+  dev->autolocals_to_args = POCL_AUTOLOCALS_TO_ARGS_ALWAYS;
+
+  dev->global_as_id = TTA_ASID_GLOBAL;
+  dev->local_as_id = TTA_ASID_LOCAL;
+  dev->constant_as_id = TTA_ASID_CONSTANT;
+  dev->context_as_id = 0;
+
+  SETUP_DEVICE_CL_VERSION (TCE_DEVICE_CL_VERSION_MAJOR,
+                           TCE_DEVICE_CL_VERSION_MINOR);
+
+  dev->parent_device = NULL;
+  // ttasim does not support partitioning
+  dev->max_sub_devices = 1;
+  dev->num_partition_properties = 1;
+  dev->partition_properties = (cl_device_partition_property *)calloc (
+      dev->num_partition_properties, sizeof (cl_device_partition_property));
+  dev->num_partition_types = 0;
+  dev->partition_type = NULL;
+
+  new TTASimDevice(dev, parameters);
   return CL_SUCCESS;
 }
 
-void
-pocl_ttasim_uninit (cl_device_id device)
+cl_int
+pocl_ttasim_uninit (unsigned j, cl_device_id device)
 {
   delete (TTASimDevice*)device->data;
-}
-
-
-cl_ulong
-pocl_ttasim_get_timer_value (void *data) 
-{
-  TTASimDevice *d = (TTASimDevice*)data;
-  return d->timeStamp();
+  return CL_SUCCESS;
 }
 
 void pocl_ttasim_update_event (cl_device_id device, cl_event event, cl_int status)
 {
+  TTASimDevice *d = (TTASimDevice *)device->data;
   switch (status)
     {
     case CL_QUEUED:
-      event->status = status;
       if (event->queue->properties & CL_QUEUE_PROFILING_ENABLE)
-        event->time_queue = device->ops->get_timer_value(device->data);
+        event->time_queue = d->timeStamp();
       break;
     case CL_SUBMITTED:
-      event->status = status;
       if (event->queue->properties & CL_QUEUE_PROFILING_ENABLE)
-        event->time_submit = device->ops->get_timer_value(device->data);
+        event->time_submit = d->timeStamp();
       break;
     case CL_RUNNING:
-      event->status = status;
-      if (event->command_type == CL_COMMAND_NDRANGE_KERNEL)
-        break;
       if (event->queue->properties & CL_QUEUE_PROFILING_ENABLE)
-        event->time_start = device->ops->get_timer_value(device->data);
+        event->time_start = d->timeStamp();
       break;
     case CL_COMPLETE:
       POCL_MSG_PRINT_INFO("TTA: Command complete, event %d\n", event->id);
       POCL_LOCK_OBJ (event);
-      if (event->queue->properties & CL_QUEUE_PROFILING_ENABLE &&
-          event->command_type != CL_COMMAND_NDRANGE_KERNEL)
-        event->time_end = device->ops->get_timer_value(device->data);
-      device->ops->broadcast(event);
-      pocl_mem_objs_cleanup (event);
-      event->status = CL_COMPLETE;
-
-      POCL_UNLOCK_OBJ (event);
-      break;
-    default:
-      assert("Invalid event status\n");
-      break;
+      if (event->queue->properties & CL_QUEUE_PROFILING_ENABLE)
+        event->time_end = d->timeStamp();
     }
 }

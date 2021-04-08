@@ -50,6 +50,9 @@ main(void)
   cl_uint ndevices;
   cl_uint i, j;
   size_t el, row, col;
+  cl_context context;
+  cl_command_queue queue;
+  cl_mem buf, img;
 
   CHECK_CL_ERROR(clGetPlatformIDs(MAX_PLATFORMS, platforms, &nplatforms));
 
@@ -70,9 +73,9 @@ main(void)
       if (!has_img)
         continue;
 
-      cl_context context = clCreateContext(NULL, 1, &devices[j], NULL, NULL, &err);
+      context = clCreateContext (NULL, 1, &devices[j], NULL, NULL, &err);
       CHECK_OPENCL_ERROR_IN("clCreateContext");
-      cl_command_queue queue = clCreateCommandQueue(context, devices[j], 0, &err);
+      queue = clCreateCommandQueue (context, devices[j], 0, &err);
       CHECK_OPENCL_ERROR_IN("clCreateCommandQueue");
 
       cl_ulong alloc;
@@ -117,9 +120,10 @@ main(void)
         host_buf[el+3] = (CHANNEL_MAX - el/((el & 1) + 1)) & CHANNEL_MAX;
       }
 
-      cl_mem buf = clCreateBuffer(context, CL_MEM_READ_WRITE, buf_size, NULL, &err);
+      buf = clCreateBuffer (context, CL_MEM_READ_WRITE, buf_size, NULL, &err);
       CHECK_OPENCL_ERROR_IN("clCreateBuffer");
-      cl_mem img = clCreateImage(context, CL_MEM_READ_WRITE, &img_format, &img_desc, NULL, &err);
+      img = clCreateImage (context, CL_MEM_READ_WRITE, &img_format, &img_desc,
+                           NULL, &err);
       CHECK_OPENCL_ERROR_IN("clCreateImage");
 
       CHECK_CL_ERROR(clEnqueueWriteBuffer(queue, buf, CL_TRUE, 0, buf_size, host_buf, 0, NULL, NULL));
@@ -141,7 +145,7 @@ main(void)
         for (col = 0; col < img_desc.image_width; ++col) {
           cl_ushort *img_pixel = (cl_ushort*)((char*)img_map + row*row_pitch) + col*4;
           cl_ushort *buf_pixel = host_buf + (row*img_desc.image_width + col)*4;
-#if 0 // debug
+
           if (memcmp(img_pixel, buf_pixel, pixel_size) != 0)
             printf("%zu %zu %zu : %x %x %x %x | %x %x %x %x\n",
               row, col, (size_t)(buf_pixel - host_buf),
@@ -153,7 +157,7 @@ main(void)
               img_pixel[1],
               img_pixel[2],
               img_pixel[3]);
-#endif
+
           TEST_ASSERT(memcmp(img_pixel, buf_pixel, pixel_size) == 0);
 
         }
@@ -186,14 +190,18 @@ main(void)
 
       TEST_ASSERT(memcmp(buf_map, host_buf, buf_size) == 0);
 
-      CHECK_CL_ERROR(clEnqueueUnmapMemObject(queue, buf, buf_map, 0, NULL, NULL));
-      CHECK_CL_ERROR(clFinish(queue));
+      CHECK_CL_ERROR (
+          clEnqueueUnmapMemObject (queue, buf, buf_map, 0, NULL, NULL));
+      CHECK_CL_ERROR (clFinish (queue));
 
       free(host_buf);
-      CHECK_CL_ERROR(clReleaseMemObject(img));
-      CHECK_CL_ERROR(clReleaseMemObject(buf));
-      CHECK_CL_ERROR(clReleaseCommandQueue(queue));
+      CHECK_CL_ERROR (clReleaseMemObject (img));
+      CHECK_CL_ERROR (clReleaseMemObject (buf));
+      CHECK_CL_ERROR (clReleaseCommandQueue (queue));
+      CHECK_CL_ERROR (clReleaseContext (context));
     }
   }
+
+  CHECK_CL_ERROR (clUnloadCompiler ());
   return EXIT_SUCCESS;
 }

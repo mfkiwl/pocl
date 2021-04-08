@@ -7,9 +7,10 @@ host-side memory management of device memory.
 Multiple logical address spaces
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-By default, Clang (at least version 3.3 and older) converts the OpenCL C address space 
-qualifiers to *target specific* address space identifiers. That is, e.g., for the common CPU 
-targets with single uniform address space, all of the OpenCL address spaces are mapped to the
+By default, Clang (at least version 5 and older) converts the OpenCL C address space
+qualifiers to "language" address space identifiers, which are later converted to
+target-specific address spaces. That is, e.g., for the common CPU targets with
+single uniform address space, all of the OpenCL address spaces are mapped to the
 address space identifier 0 (the default C address space). For multiple address space
 LLVM backends such as AMD GPUs there are different ids produced for the OpenCL C address spaces,
 but they differ from those of the TCE backend, etc. Thus, after the Clang processing of
@@ -18,17 +19,6 @@ target specific, preventing or complicating the special treatment of the pointer
 to (logically) different address spaces (e.g. OpenCL disjoint address space alias analysis,
 see :ref:`opencl-optimizations`).
 
-pocl's kernel compiler needs to know the original logical address spaces in the kernel during
-some of its processing steps. In order to unify these parts of the kernel compiler, pocl 
-uses the "fake address space map" mechanism of Clang to force pocl-known *separate* ids to be 
-produced for each of the OpenCL C logical address spaces in the frontend. 
-
-Before the code generation, the forced OpenCL C logical address space ids should be mapped to 
-the backend understood ones. This can be done in the kernel compiler pass ``TargetAddressSpaces``. 
-It goes through all the memory references in the bitcode and maps their address space ids to the 
-target specific ones. In case it is known that the targeted backend either understands the logical
-address space ids (or simply maps everything to 0 there aswell), this processing is
-skipped (and left for the backend). 
 
 Managing the device memories
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -59,3 +49,18 @@ When passing buffer pointers to the kernel/work-group launchers, the memory addr
 passed as integer values. The values passed from the host are casted to the actual
 address-space qualified LLVM IR pointers for calling the kernels with correct types
 by the work-group function (see :ref:`wg-functions`).
+
+Custom memory management for pthread device
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Enabled by CMake option USE_POCL_MEMMANAGER. This is only useful for certain
+uncommon setups, where pocl is expected to allocate a huge number of queue or
+event objects. For most available OpenCL programs / tests / benchmarks, there
+is no measurable difference in speed.
+
+Advantages:
+* allocation of queues/events/command objects can be a lot faster
+
+Disadvantages:
+* memory allocated for those objects is never free()d; it's only returned to allocation pool
+* debugging tools will not detect use-after-free bugs on said objects

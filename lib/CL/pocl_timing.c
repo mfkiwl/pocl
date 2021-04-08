@@ -24,16 +24,18 @@
 #include "config.h"
 
 #ifndef _MSC_VER
-#  ifndef __STDC_FORMAT_MACROS
-#    define __STDC_FORMAT_MACROS
+#  define _DEFAULT_SOURCE
+#  define __POSIX_VISIBLE 200112L
+#  ifndef _POSIX_C_SOURCE
+#    define _POSIX_C_SOURCE 200112L
 #  endif
 #  include <inttypes.h>
-#  ifdef HAVE_CLOCK_GETTIME
+#  if defined(HAVE_CLOCK_GETTIME) || defined(__APPLE__)
 #    include <time.h>
 #  else
 #    include <sys/time.h>
 #  endif
-#  ifdef __MACH__
+#  ifdef __APPLE__
 #    include <mach/clock.h>
 #    include <mach/mach.h>
 #  endif
@@ -72,13 +74,13 @@ uint64_t pocl_gettimemono_ns() {
 #   warning Using clock_gettime with CLOCK_MONOTONIC for monotonic clocks
   clock_gettime(CLOCK_MONOTONIC, &timespec);
 #  endif
-# elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+# elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD_kernel__)
   clock_gettime(CLOCK_UPTIME_FAST, &timespec);
 # else
 # warning Using clock_gettime with CLOCK_REALTIME for monotonic clocks
   clock_gettime(CLOCK_REALTIME, &timespec);
 # endif
-  return ((timespec.tv_sec * 1000000000UL) + timespec.tv_nsec);
+  return (((uint64_t)timespec.tv_sec * 1000000000UL) + timespec.tv_nsec);
 
 
 #elif defined(__APPLE__)

@@ -24,8 +24,6 @@
 #ifndef POCL_SHARED_H
 #define POCL_SHARED_H
 
-#include "pocl_cl.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,6 +32,7 @@ extern "C" {
 #pragma GCC visibility push(hidden)
 #endif
 
+void pocl_check_uninit_devices ();
 
 cl_int pocl_rect_copy(cl_command_queue command_queue,
                       cl_command_type command_type,
@@ -50,9 +49,10 @@ cl_int pocl_rect_copy(cl_command_queue command_queue,
                       size_t dst_slice_pitch,
                       cl_uint num_events_in_wait_list,
                       const cl_event *event_wait_list,
-                      cl_event *event);
+                      cl_event *event,
+                      _cl_command_node **cmd);
 
-cl_int program_compile_dynamic_wg_binaries(cl_program program);
+cl_int program_compile_dynamic_wg_binaries (cl_program program);
 
 cl_program create_program_skeleton (cl_context context, cl_uint num_devices,
                                     const cl_device_id *device_list,

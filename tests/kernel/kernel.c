@@ -1,8 +1,8 @@
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <CL/opencl.h>
+
 #include "poclu.h"
 
 #ifdef _MSC_VER
@@ -17,11 +17,8 @@ int call_test(const char *name)
 {
   size_t global_work_size[1] = { 1 }, local_work_size[1]= { 1 };
   size_t srcdir_length, name_length, filename_size;
-  size_t source_size, source_read;
-  char const *sources[1];
   char *filename = NULL;
   char *source = NULL;
-  FILE *source_file = NULL;
   cl_device_id devices[1];
   cl_context context = NULL;
   cl_command_queue queue = NULL;
@@ -29,8 +26,8 @@ int call_test(const char *name)
   cl_kernel kernel = NULL;
   cl_int result;
   int retval = -1;
-  
-  assert(name);
+
+  TEST_ASSERT (name != NULL);
 
   /* determine file name of kernel source to load */
   srcdir_length = strlen(SRCDIR);
@@ -45,31 +42,8 @@ int call_test(const char *name)
   snprintf(filename, filename_size, "%s/%s.cl", SRCDIR, name);
 
   /* read source code */
-  source_file = fopen(filename, "r");
-  if (!source_file) {
-     puts("source file not found\n");
-     goto error;
-  }
-
-  fseek(source_file, 0, SEEK_END);
-  source_size = ftell(source_file);
-  fseek(source_file, 0, SEEK_SET);
-  
-  source = (char *)malloc(source_size + 1);
-  if (!source) {
-    puts("out of memory\n");
-    goto error;
-  }
-
-  source_read = fread(source, 1, source_size, source_file);
-  if (source_read != source_size) {
-    puts("error reading from file\n");
-    goto error;
-  }
-
-  source[source_size] = '\0';
-  fclose(source_file);
-  source_file = NULL;
+  source = poclu_read_file (filename);
+  TEST_ASSERT (source != NULL && "Kernel .cl not found.");
 
   /* setup an OpenCL context and command queue using default device */
   context = poclu_create_any_context();
@@ -92,14 +66,14 @@ int call_test(const char *name)
   }
 
   /* create and build program */
-  sources[0] = source;
-  program = clCreateProgramWithSource(context, 1, sources, NULL, NULL); 
+  program = clCreateProgramWithSource (context, 1, (const char **)&source,
+                                       NULL, NULL);
   if (!program) {
     puts("clCreateProgramWithSource call failed\n");
     goto error;
   }
 
-  result = clBuildProgram(program, 0, NULL, NULL, NULL, NULL); 
+  result = clBuildProgram(program, 0, NULL, "-I" SRCDIR, NULL, NULL);
   if (result != CL_SUCCESS) {
     puts("clBuildProgram call failed\n");
     goto error;
@@ -135,10 +109,7 @@ error:
     clReleaseCommandQueue(queue);
   }
   if (context) {
-    clReleaseContext(context);
-  }
-  if (source_file) {
-    fclose(source_file);
+    clReleaseContext (context);
   }
   if (source) {
     free(source);
@@ -171,23 +142,30 @@ int main(int argc, char **argv)
     /* Run all tests */
     for (i = 0; i < num_all_tests; ++i) {
       printf("Running test #%d %s...\n", i, all_tests[i]);
+      fflush(stdout);
+      fflush(stderr);
       retval = call_test(all_tests[i]);
-      if (retval) {
-        printf("FAIL\n");
-        return 1;
-      }
+      fflush(stdout);
+      fflush(stderr);
     }
   } else {
     /* Run one test */
     printf("Running test %s...\n", argv[1]);
+    fflush(stdout);
+    fflush(stderr);
     retval = call_test(argv[1]);
-    if (retval) {
-      printf("FAIL\n");
-      return 1;
-    }
+    fflush(stdout);
+    fflush(stderr);
   }
-  
-  printf("OK\n");
-  return 0;
+
+  CHECK_CL_ERROR (clUnloadCompiler ());
+
+  if (retval)
+    printf("FAIL\n");
+  else
+    printf("OK\n");
+  fflush(stdout);
+  fflush(stderr);
+  return (retval ? 1 : 0);
 }
 

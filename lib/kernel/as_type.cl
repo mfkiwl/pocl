@@ -27,8 +27,12 @@
  * These map down to the corresponding SPIR/LLVM IR bitcast instruction.
  */
 
+#if (__clang_major__ < 5)
+
+/* Clang starting from 5 defines these as builtins in opencl-c.h */
+
 #define DEFINE_AS_TYPE(SRC, DST)                                        \
-  _CL_ALWAYSINLINE _CL_OVERLOADABLE                                     \
+  _CL_ALWAYSINLINE _CL_OVERLOADABLE _CL_READNONE                                   \
   DST as_##DST(SRC a)                                                   \
   {                                                                     \
     union { SRC src; DST dst; } cvt;                                    \
@@ -237,3 +241,5 @@ DEFINE_AS_TYPE_128(long16)
 DEFINE_AS_TYPE_128(ulong16))
 __IF_FP64(
 DEFINE_AS_TYPE_128(double16))
+
+#endif

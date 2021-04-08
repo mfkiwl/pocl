@@ -21,7 +21,6 @@ POname(clEnqueueNativeKernel)(cl_command_queue   command_queue ,
 {
   cl_uint i = 0;
   _cl_command_node *command_node = NULL;
-  cl_mem *mem_list_copy = NULL;
   void *args_copy = NULL;
   cl_int errcode;
 
@@ -57,8 +56,6 @@ POname(clEnqueueNativeKernel)(cl_command_queue   command_queue ,
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  command_node->command.native.data = command_queue->device->data;
-  command_node->command.native.num_mem_objects = num_mem_objects;
   command_node->command.native.user_func = user_func;
 
   /* Specification specifies that args passed to user_func is a copy of the
@@ -74,20 +71,6 @@ POname(clEnqueueNativeKernel)(cl_command_queue   command_queue ,
       memcpy (args_copy, args, cb_args);
     }
 
-  /* recopy the cl_mem object list to free them easily after run */
-  if (num_mem_objects)
-    {
-      mem_list_copy = (cl_mem*) malloc(num_mem_objects * sizeof(cl_mem));
-      if (mem_list_copy == NULL)
-      {
-        POCL_MEM_FREE(args_copy);
-        POCL_MEM_FREE(command_node);
-        return CL_OUT_OF_HOST_MEMORY;
-      }
-      memcpy (mem_list_copy, mem_list, num_mem_objects * sizeof(cl_mem));
-    }
-  command_node->command.native.mem_list = mem_list_copy;
-
   for (i = 0; i < num_mem_objects; i++)
     {
       void *buf;
@@ -97,15 +80,18 @@ POname(clEnqueueNativeKernel)(cl_command_queue   command_queue ,
       if (mem_list[i] == NULL)
         {
           POCL_MEM_FREE(args_copy);
-          POCL_MEM_FREE(mem_list_copy);
           POCL_MEM_FREE(command_node);
           return CL_INVALID_MEM_OBJECT;
         }
 
+      cl_mem m = mem_list[i];
+      if (m->parent != NULL)
+        m = m->parent;
+
       /* put the device ptr of the clmem in the argument */
-      buf = mem_list[i]->device_ptrs[command_queue->device->dev_id].mem_ptr;
-      mem_list[i]->owning_device = command_queue->device;
-      POname(clRetainMemObject) (mem_list[i]);
+      buf = m->device_ptrs[command_queue->device->dev_id].mem_ptr;
+      m->owning_device = command_queue->device;
+      POname (clRetainMemObject) (m);
       /* args_mem_loc is a pointer relative to the original args, since we
        * recopy them, we must do some relocation */
       ptrdiff_t offset = (uintptr_t) loc - (uintptr_t) args;
@@ -119,8 +105,6 @@ POname(clEnqueueNativeKernel)(cl_command_queue   command_queue ,
     }
   command_node->command.native.args = args_copy;
   command_node->command.native.cb_args = cb_args;
-
-  POname(clRetainCommandQueue) (command_queue);
 
   pocl_command_enqueue (command_queue, command_node);
 

@@ -51,6 +51,10 @@ static const char invalid_kernel[] =
 static const char warning_kernel[] =
   "kernel void test_kernel(int j, k) { return; }\n";
 
+static const char missing_symbol_kernel[] = "kernel void test_kernel() { "
+                                            "one_does_not_simply_walk_into_"
+                                            "mordor(); }\n";
+
 /* kernel can have any name, except main() starting from OpenCL 2.0 */
 static const char valid_kernel[] =
   "kernel void init(global int *arg) { return; }\n";
@@ -65,9 +69,9 @@ void buildprogram_callback(cl_program program, void *user_data)
   fprintf(stderr, "cl_program callback (via pfn_notify)\n");
 
   if (user_data == (void*)FAKE_PTR)
-    fprintf(stderr, "OK\n");
+    fprintf (stderr, "build callback successful\n");
   else
-    fprintf(stderr, "FAIL\n");
+    fprintf (stderr, "build callback FAILED\n");
 }
 
 
@@ -137,12 +141,17 @@ main(void){
               size_t log_size = 0;
               CHECK_CL_ERROR(clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
                       0, NULL, &log_size));
-              char *log = malloc(log_size);
-              CHECK_CL_ERROR(clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
-                      log_size, log, NULL));
-              log[log_size] = '\0';
-              fprintf(stderr, "preprocess failure log[%u]: %s\n", i, log);
-              free(log);
+              if (log_size)
+                {
+                  char *log = malloc (log_size + 1);
+                  fprintf (stderr, "log: %p\n", log);
+                  CHECK_CL_ERROR (clGetProgramBuildInfo (program, devices[i],
+                                                         CL_PROGRAM_BUILD_LOG,
+                                                         log_size, log, NULL));
+                  log[log_size] = '\0';
+                  fprintf (stderr, "preprocess failure log[%u]: %s\n", i, log);
+                  free (log);
+                }
       }
       /*Lets not release the program as we need it in the next test case*/
       /*CHECK_CL_ERROR(clReleaseProgram(program));*/
@@ -155,16 +164,19 @@ main(void){
 
       for (i = 0; i < num_devices; ++i) {
           size_t log_size = 0;
-          err = clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
-              0, NULL, &log_size);
-          CHECK_OPENCL_ERROR_IN("get build log size");
-          char *log = malloc(log_size);
-          err = clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
-              log_size, log, NULL);
-          CHECK_OPENCL_ERROR_IN("get build log");
-          log[log_size] = '\0';
-          fprintf(stderr, "preprocess failure log[%u]: %s\n", i, log);
-          free(log);
+          CHECK_CL_ERROR (clGetProgramBuildInfo (
+              program, devices[i], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size));
+          if (log_size)
+            {
+              char *log = malloc (log_size + 1);
+              err = clGetProgramBuildInfo (program, devices[i],
+                                           CL_PROGRAM_BUILD_LOG, log_size, log,
+                                           NULL);
+              CHECK_OPENCL_ERROR_IN ("get build log");
+              log[log_size] = '\0';
+              fprintf (stderr, "preprocess failure log[%u]: %s\n", i, log);
+              free (log);
+            }
       }
 
       CHECK_CL_ERROR(clReleaseProgram(program));
@@ -260,19 +272,22 @@ main(void){
 
       for (i = 0; i < num_devices; ++i) {
           size_t log_size = 0;
-          err = clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
-                                      0, NULL, &log_size);
-          CHECK_OPENCL_ERROR_IN("get build log size");
-          char *log = malloc(log_size);
-          err = clGetProgramBuildInfo(program, devices[i], CL_PROGRAM_BUILD_LOG,
-                                      log_size, log, NULL);
-          CHECK_OPENCL_ERROR_IN("get build log");
-          log[log_size] = '\0';
-          /*As this build option deprecated after OCL1.0 we should see a warning here*/
-          fprintf(stderr, "Deprecated -cl-strict-aliasing log[%u]: %s\n", i, log);
-
-          free(log);
-
+          CHECK_CL_ERROR (clGetProgramBuildInfo (
+              program, devices[i], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size));
+          if (log_size)
+            {
+              char *log = malloc (log_size + 1);
+              err = clGetProgramBuildInfo (program, devices[i],
+                                           CL_PROGRAM_BUILD_LOG,
+                                           log_size, log, NULL);
+              CHECK_OPENCL_ERROR_IN ("get build log");
+              log[log_size] = '\0';
+              /*As this build option deprecated after OCL1.0 we should see a
+               * warning here*/
+              fprintf (stderr, "Deprecated -cl-strict-aliasing log[%u]: %s\n",
+                       i, log);
+              free (log);
+            }
           cl_program_binary_type bin_type = 0;
           err = clGetProgramBuildInfo(program, devices[i],
                                       CL_PROGRAM_BINARY_TYPE,
@@ -397,9 +412,17 @@ main(void){
                                         &s, &err);
     CHECK_OPENCL_ERROR_IN("clCreateProgramWithSource");
 
-    CHECK_CL_ERROR(clBuildProgram(program, num_devices, devices, NULL, NULL, NULL));
+#ifdef _CL_DISABLE_DOUBLE
+    const char *options = NULL;
+#else
+    const char *options = "-DTEST_DOUBLES";
+#endif
+
+    CHECK_CL_ERROR(clBuildProgram(program, num_devices, devices, options, NULL, NULL));
 
     CHECK_CL_ERROR(clReleaseProgram(program));
+
+    free (macro_kernel);
   }
 
   /* TEST 12: warning into error */
@@ -431,6 +454,27 @@ main(void){
 
       CHECK_CL_ERROR(clReleaseProgram(program));
   }
+
+  /* TEST 13: missing symbols: kernel referring nonexistent function */
+  {
+    size_t kernel_size = strlen (missing_symbol_kernel);
+    const char *kernel_buffer = missing_symbol_kernel;
+
+    program = clCreateProgramWithSource (
+        context, 1, (const char **)&kernel_buffer, &kernel_size, &err);
+    // clCreateProgramWithSource for invalid kernel failed
+    CHECK_OPENCL_ERROR_IN ("clCreateProgramWithSource");
+
+    err = clBuildProgram (program, num_devices, devices, NULL, NULL, NULL);
+    TEST_ASSERT (err == CL_BUILD_PROGRAM_FAILURE);
+
+    CHECK_CL_ERROR (clReleaseProgram (program));
+  }
+
+  CHECK_CL_ERROR (clReleaseContext (context));
+  CHECK_CL_ERROR (clUnloadCompiler ());
+
+  printf ("OK\n");
 
   return EXIT_SUCCESS;
 }

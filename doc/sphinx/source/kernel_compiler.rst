@@ -2,24 +2,17 @@ Kernel compiler
 ---------------
 
 The compilation of kernels in pocl is performed roughly as follows.
-In release 0.9 the scripts (referred to below) were replaced by direct
-LLVM API calls. The structure remains, e.g. calling script ``pocl-build`` was
-replaced with calling function ``call_pocl_build()``. See ``lib/CL/pocl_llvm_api.cc``
 
-#. Produce an LLVM bitcode of the single kernel function.
+#. Produce an LLVM bitcode of the entire program.
 
-   The kernel compiler of pocl relies on the OpenCL C frontend of the Clang 
-   for parsing the kernel descriptions to LLVM bytecode. The output from
-   Clang is a description of the kernel function for a single work-item.
+   This is done using 'preprocess' and 'emit-llvm' Clang actions. This
+   happens at clBuildProgram() time.
 
-   Done with the help of ``pocl-build`` script that invokes the Clang. See
-   ``clBuildProgram.c``.
-
-#. Link in the built-in functions.
+#. Link in the built-in kernel library functions.
 
    The OpenCL C builtin functions are precompiled to LLVM *bitcode* libraries
    residing under ``lib/kernel/$TARGET``. These are linked to the kernel using
-   the ``llvm-link`` tool when the helper script ``pocl-workgroup`` (see the next item).
+   link() from lib/llvmopencl/linker.cpp. This too happens in clBuildProgram()
 
 #. Produce the work-group function.
 
@@ -32,19 +25,21 @@ replaced with calling function ``call_pocl_build()``. See ``lib/CL/pocl_llvm_api
    description and take care of the parallel execution of multiple kernel instances 
    using their scheduling hardware.
 
-   This part is performed when a kernel execution command is executed (see 
-   ``clEnqueueNDRangeKernel.c``).  Only at this point the work-group dimensions are 
-   known, after which it is possible to produce functions of the single kernel functions 
-   that execute the whole work-group.
+   This part is performed by target-specific code when a kernel execution
+   command is scheduled. Only at this point the work-group dimensions are
+   known, after which it is possible to produce functions of the single
+   kernel functions that execute the whole work-group.
 
 #. Code generation for the target.
 
    The work-group function (which is still in LLVM IR) of the kernel along with the launcher 
    functions are finally converted to the machine code of the target device. This is done in
-   the device layer's implementation of the kernel run command. For example, see ``llvm_codegen()``
-   in ``lib/CL/devices/common.c``. This function generates a dynamically loaded object of the
-   work-group function for actually launching the kernel. The function is called from the CPU
-   device layer implementations (``pocl_basic_run()`` of ``lib/CL/devices/basic/basic.c``).
+   the device layer's implementation of the kernel run command (same as generating wg
+   function). For example, see ``llvm_codegen()`` in ``lib/CL/devices/common.c``.
+   This function generates a dynamically loaded object of the work-group
+   function for actually launching the kernel. The function is called
+   from the CPU device layer implementations
+   (``pocl_basic_run()`` of ``lib/CL/devices/basic/basic.c``).
    
 
 Work group function generation
@@ -281,28 +276,6 @@ Some of them are listed in the following:
  to kernel arguments. This is to enforce the similar treatment of the both
  types of local buffers, the ones passed as arguments and the ones instantiated
  in the kernel.
-
-* ``TargetAddressSpaces``
-
- Internally pocl uses fixed address space ids to denote the different OpenCL
- address spaces.  That is, Clang generates LLVM IR that uses these address space
- ids, even with targets that have a single flat address space in reality.
- This is to differentiate the different type of pointers for treating locals
- correctly, and also for assisting alias analysis (different address spaces are
- disjoint, thus accesses to them won't alias each other).
-
- TargetAddressSpaces is a pass that converts these fake ids to the ones expected
- by the target.  This pass can be short cutted in case the backend for the target
- can flatten the ids safely.  However, recently (as of LLVM 3.7) there has been new
- problems with some optimizations (at least LoopVectorizer) that get confused with
- the fake ids.  Therefore it is recommended the ids are flattened even if not
- strictly needed for a target at hand to avoid these issues and make some LLVM
- optimizations more efficient.
-
- A more robust version of AS handling might be to rely on metadata when differentiating
- the pointers and already in Clang use the target's address spaces in the IR. This
- would ensure the LLVM IR passes would not get confused by the fake ids.
-
 
 .. _opencl-optimizations:
 

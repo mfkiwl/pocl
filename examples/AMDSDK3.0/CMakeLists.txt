@@ -23,13 +23,13 @@
 #
 #=============================================================================
 
-
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
 
   set(TS_NAME AMDSDK3.0)
   set(TS_BASEDIR "${TESTSUITE_BASEDIR}/${TS_NAME}")
   set(TS_SRCDIR "${TESTSUITE_SOURCE_BASEDIR}/${TS_NAME}")
   set(AMD_APP_SDK_TGZ "${TS_SRCDIR}/AMD-APP-SDK-v3.0.130.135-GA-linux64.sh")
+  set(TS_ROOT "${TS_BASEDIR}/src/${TS_NAME}")
 
   if(EXISTS "${AMD_APP_SDK_TGZ}")
 
@@ -40,13 +40,23 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     ExternalProject_Add(
       ${TS_NAME}
       PREFIX "${TS_BASEDIR}"
-      DOWNLOAD_COMMAND "/bin/true"
+
+      SOURCE_DIR "${TS_ROOT}"
+      SOURCE_SUBDIR "AMD-APP-SDK-3.0/samples"
+
+      DOWNLOAD_COMMAND /bin/true
+      UPDATE_COMMAND /bin/true
+
       PATCH_COMMAND /bin/sh "${AMD_APP_SDK_TGZ}" --noexec --keep --target AMD-APP-SDK-3.0 &&
-             patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/amdsdk3_0.patch
-      CONFIGURE_COMMAND "/bin/true"
-      BUILD_IN_SOURCE 1
-      BUILD_COMMAND "/bin/true"
-      INSTALL_COMMAND "/bin/true"
+             patch -p1 -i ${CMAKE_CURRENT_SOURCE_DIR}/amdsdk3_0.patch &&
+             /bin/sh -c "rm ${TS_ROOT}/AMD-APP-SDK-3.0/lib/x86_64/libOpenCL*"
+
+      CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+                -DBUILD_OPENCL=ON -DBUILD_OPENCV=OFF -DBUILD_BOLT=OFF -DBUILD_AMP=OFF
+                "-DCMAKE_C_FLAGS_RELEASE=-O2 -ggdb -Wno-deprecated-declarations"
+                "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -ggdb -Wno-deprecated-declarations"
+
+      INSTALL_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/install.sh "${TS_ROOT}"
     )
 
     set_target_properties(${TS_NAME} PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -69,6 +79,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     DwtHaar1D
     FastWalshTransform
     FloydWarshall
+    FluidSimulation2D
     GaussianNoise
     HDRToneMapping
     HelloWorld
@@ -78,6 +89,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     ImageOverlap
     KernelLaunch
     LUDecomposition
+    Mandelbrot
     MatrixMulImage
     MatrixMultiplication
     MatrixTranspose
@@ -105,7 +117,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     #     IntroStaticCPPKernel FFT MatrixMultiplicationCPPKernel
     #     MersenneTwister SoAversusAoS TransferOverlapCPP
     # disabled but fixable: BuiltInScan CalcPie CplusplusWrapper
-    #     DeviceFission FluidSimulation2D GaussianNoise HDRToneMapping
+    #     GaussianNoise HDRToneMapping
     #     HeatPDE ImageBandwidth KernelLaunch MatrixMulDouble
     #     MonteCarloAsianDP SobelFilterImage UnsharpMask DynamicOpenCLDetection
     #     FineGrainSVMCAS RecursiveGaussian_ProgramScope SobelFilterImage
@@ -113,7 +125,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
     # disabled tests: AsyncDataTransfer AtomicCounters BasicDebug
     #     DeviceFission11Ext RangeMinimumQuery SimpleDepthImage
     #     SimpleGenericAddressSpace
-    # disabled graphics tests: Mandelbrot  KmeansAutoclustering
+    # disabled graphics tests: KmeansAutoclustering
     #     GaussianNoiseGL SimpleGL BoxFilterGL URNGNoiseGL
     # very slow: BufferBandwidth LDSBandwidth ConstantBandwidth
     #     MemoryOptimizations TransferOverlap
@@ -137,7 +149,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
 
     foreach(SAMPLE IN LISTS AMD_SAMPLES)
       add_test(NAME "AMD_30_${SAMPLE}"
-        COMMAND "${TS_BASEDIR}/src/${TS_NAME}/AMD-APP-SDK-3.0/samples/opencl/bin/x86_64/${SAMPLE}"
+        COMMAND "${TS_BASEDIR}/src/${TS_NAME}/AMD-APP-SDK-3.0/samples/opencl/bin/x86_64/${SAMPLE}" "-q" "-t" "-e"
         WORKING_DIRECTORY "${TS_BASEDIR}/src/${TS_NAME}/AMD-APP-SDK-3.0/samples/opencl/bin/x86_64")
       set_tests_properties("AMD_30_${SAMPLE}" PROPERTIES LABELS "amdsdk_30")
     endforeach()
@@ -151,12 +163,11 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND X86_64)
 
     # XFAILs as of 2016-05-17:
     # AMD_30_BuiltInScan: undefined symbol: work_group_scan_inclusive_add
-    # AMD_30_DeviceFission: Invalid device.
     # AMD_30_GaussianNoise, AMD_30_HDRToneMapping: Invalid platform.
     # AMD_30_ImageBinarization: work_group_barrier missing
     # AMD_30_HDRToneMapping: no output
     # AMD_30_UnsharpMask: clCreateContextFromType failed
-    set_tests_properties(AMD_30_BuiltInScan AMD_30_DeviceFission
+    set_tests_properties(AMD_30_BuiltInScan
       AMD_30_GaussianNoise AMD_30_HDRToneMapping
       AMD_30_ImageBinarization AMD_30_KernelLaunch
       AMD_30_UnsharpMask

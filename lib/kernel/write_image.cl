@@ -1,6 +1,7 @@
 /* OpenCL built-in library: write_image()
 
    Copyright (c) 2013 Ville Korhonen 
+   Copyright (c) 2017 Michal Babej / Tampere University of Technology
    
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -61,15 +62,7 @@ write_float4_pixel (float4 color, void *data, size_t base_index, int type)
     }
   if (type == CLK_HALF_FLOAT)
     {
-#if !defined(LLVM_OLDER_THAN_3_9) && __has_builtin(__builtin_convertvector)
-      typedef float vector4float __attribute__ ((__vector_size__ (16)));
-      typedef half vector4half __attribute__ ((__vector_size__ (8)));
-      vector4half vh = __builtin_convertvector(color, vector4half);
-      ((vector4half *)data)[base_index] = vh;
-      return;
-#else
-      __builtin_trap ();
-#endif
+      vstorea_half4(color, base_index, data);
     }
   const float4 f127 = ((float4) (SCHAR_MAX));
   const float4 f32767 = ((float4) (SHRT_MAX));
@@ -333,10 +326,8 @@ CLK_UNSIGNED_INT8, CLK_UNSIGNED_INT16, or CLK_UNSIGNED_INT32.
         = __builtin_astype (image, global dev_image_t *);                     \
     int asize = i_ptr->_image_array_size - 1;                                 \
     int elem_size = i_ptr->_elem_size;                                        \
-    int channel_type = i_ptr->_data_type;                                     \
     int num_channels = i_ptr->_num_channels;                                  \
     size_t elem_bytes = num_channels * elem_size;                             \
-    size_t slice_pitch_pixels = i_ptr->_slice_pitch / elem_bytes;             \
     size_t row_pitch = i_ptr->_row_pitch / elem_bytes;                        \
     size_t slice_pitch = i_ptr->_slice_pitch / elem_bytes;                    \
     size_t array_offset_pixels = 0;                                           \

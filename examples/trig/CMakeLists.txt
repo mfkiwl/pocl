@@ -23,10 +23,8 @@
 #
 #=============================================================================
 
-#AM_CPPFLAGS = -I$(top_srcdir)/fix-include -I$(top_srcdir)/include -DSRCDIR='"$(abs_srcdir)"'
 add_definitions("-DSRCDIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
 
-# trig_CFLAGS = @OPENCL_CFLAGS@
 add_compile_options(${OPENCL_CFLAGS})
 
 if(MSVC)
@@ -34,16 +32,21 @@ if(MSVC)
 endif(MSVC)
 add_executable("trig" trig.c trig.cl trig_exec.c)
 
-# trig_LDADD = @OPENCL_LIBS@ -lm ../../lib/poclu/libpoclu.la
 target_link_libraries("trig" ${POCLU_LINK_OPTIONS})
 
 add_test("examples/trig" "trig")
+
+set(PROPS)
+if(NOT ENABLE_ANYSAN)
+  set(PROPS
+    PASS_REGULAR_EXPRESSION "OK")
+endif()
 
 set_tests_properties(
   "examples/trig"
   PROPERTIES
     COST 3.0
-    PASS_REGULAR_EXPRESSION "OK\n"
+    ${PROPS}
     PROCESSORS 1
-    LABELS "OpenCL_Spec;cuda"
+    LABELS "internal;cuda;hsa-native"
     DEPENDS "pocl_version_check")

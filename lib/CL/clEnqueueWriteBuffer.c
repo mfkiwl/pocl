@@ -31,7 +31,7 @@ POname(clEnqueueWriteBuffer)(cl_command_queue command_queue,
                      cl_mem buffer,
                      cl_bool blocking_write,
                      size_t offset,
-                     size_t cb, 
+                     size_t size,
                      const void *ptr,
                      cl_uint num_events_in_wait_list,
                      const cl_event *event_wait_list,
@@ -46,6 +46,8 @@ POname(clEnqueueWriteBuffer)(cl_command_queue command_queue,
 
   POCL_RETURN_ERROR_COND((buffer == NULL), CL_INVALID_MEM_OBJECT);
 
+  POCL_RETURN_ON_SUB_MISALIGN (buffer, command_queue);
+
   POCL_RETURN_ERROR_ON((command_queue->context != buffer->context),
     CL_INVALID_CONTEXT, "buffer and command_queue are not from the same context\n");
 
@@ -57,8 +59,14 @@ POname(clEnqueueWriteBuffer)(cl_command_queue command_queue,
 
   POCL_RETURN_ERROR_COND((ptr == NULL), CL_INVALID_VALUE);
 
-  if (pocl_buffer_boundcheck(buffer, offset, cb) != CL_SUCCESS)
+  if (pocl_buffer_boundcheck (buffer, offset, size) != CL_SUCCESS)
     return CL_INVALID_VALUE;
+
+  POCL_CONVERT_SUBBUFFER_OFFSET (buffer, offset);
+
+  POCL_RETURN_ERROR_ON((buffer->size > command_queue->device->max_mem_alloc_size),
+                        CL_OUT_OF_RESOURCES,
+                        "buffer is larger than device's MAX_MEM_ALLOC_SIZE\n");
 
   errcode = pocl_check_event_wait_list (command_queue, num_events_in_wait_list,
                                         event_wait_list);
@@ -74,16 +82,15 @@ POname(clEnqueueWriteBuffer)(cl_command_queue command_queue,
   if (errcode != CL_SUCCESS)
     return errcode;
 
-  cmd->command.write.host_ptr = ptr;
-  cmd->command.write.device_ptr =
-    (char*)buffer->device_ptrs[device->dev_id].mem_ptr;
+  cmd->command.write.src_host_ptr = ptr;
+  cmd->command.write.dst_mem_id = &buffer->device_ptrs[device->dev_id];
   cmd->command.write.offset = offset;
-  cmd->command.write.cb = cb;
-  cmd->command.write.buffer = buffer;
+  cmd->command.write.size = size;
 
   POname(clRetainMemObject) (buffer);
   buffer->owning_device = command_queue->device;
-  pocl_command_enqueue(command_queue, cmd);
+
+  pocl_command_enqueue (command_queue, cmd);
 
   if (blocking_write)
     POname(clFinish) (command_queue);

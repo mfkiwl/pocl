@@ -22,6 +22,7 @@
 // THE SOFTWARE.
 
 #include <set>
+#include <iostream>
 
 #include "CompilerWarnings.h"
 IGNORE_COMPILER_WARNING("-Wunused-parameter")
@@ -55,9 +56,6 @@ HandleSamplerInitialization::HandleSamplerInitialization() : FunctionPass(ID) {
 bool
 HandleSamplerInitialization::runOnFunction(Function &F) {
 
-#ifdef LLVM_OLDER_THAN_4_0
-  return false;
-#else
   // Collect the sampler init calls to handle first, do not remove them
   // instantly as it'd invalidate the iterators.
   std::set<CallInst*> Calls;
@@ -78,18 +76,36 @@ HandleSamplerInitialization::runOnFunction(Function &F) {
   bool Changed = false;
   for (auto C : Calls) {
     llvm::IRBuilder<> Builder(C);
+
+    // get the type of the return value of __translate_sampler
+    // this may not always be opencl.sampler_t, it could be a remapped type.
+#ifdef LLVM_OLDER_THAN_11_0
+    Type *type = C->getCalledValue()->getType();
+#else
+    Type *type = C->getCalledOperand()->getType();
+#endif
+    PointerType *pt = dyn_cast<PointerType>(type);
+    FunctionType *ft = dyn_cast<FunctionType>(pt->getPointerElementType());
+    Type *rettype = ft->getReturnType();
+
     ConstantInt *SamplerValue = dyn_cast<ConstantInt>(C->arg_begin()->get());
 
-    llvm::AllocaInst *Alloca = Builder.CreateAlloca(SamplerValue->getType());
-    Builder.CreateStore(
-      ConstantInt::get(SamplerValue->getType(), SamplerValue->getValue()),
-      Alloca);
-    C->replaceAllUsesWith(Builder.CreateBitOrPointerCast(Alloca, C->getType()));
+    IntegerType *it;
+    if (F.getParent()->getDataLayout().getPointerSizeInBits() == 64)
+      it = Builder.getInt64Ty();
+    else
+      it = Builder.getInt32Ty();
+    // cast the sampler value to intptr_t
+    Constant *sampler = ConstantInt::get(it, SamplerValue->getZExtValue());
+    // then bitcast it to return value (opencl.sampler_t*)
+    Value *val = Builder.CreateBitOrPointerCast(sampler, rettype);
+
+    C->replaceAllUsesWith(val);
     C->eraseFromParent();
     Changed = true;
   }
+
   return Changed;
-#endif
 }
 
 void

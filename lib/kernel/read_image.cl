@@ -3,6 +3,7 @@
    Copyright (c) 2013 Ville Korhonen
    Copyright (c) 2014 Felix Bytow
    Copyright (c) 2015 Matias Koskela
+   Copyright (c) 2017 Michal Babej / Tampere University of Technology
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -36,7 +37,11 @@
 #include "templates.h"
 #include "pocl_image_rw_utils.h"
 
-static uint4
+#define CLK_ADDRESS_MASK                                                      \
+  (CLK_ADDRESS_CLAMP_TO_EDGE | CLK_ADDRESS_CLAMP | CLK_ADDRESS_REPEAT         \
+   | CLK_ADDRESS_MIRRORED_REPEAT)
+
+_CL_READNONE static uint4
 map_channels (uint4 color, int order)
 {
   switch (order)
@@ -55,22 +60,14 @@ map_channels (uint4 color, int order)
 
 /* only for CLK_FLOAT, CLK_SNORM_INT8, CLK_UNORM_INT8,
  * CLK_SNORM_INT16, CLK_UNORM_INT16 channel types */
-static float4
+_CL_READONLY static float4
 get_float4_pixel (void *data, size_t base_index, int type)
 {
   if (type == CLK_FLOAT)
     return ((float4 *)data)[base_index];
   if (type == CLK_HALF_FLOAT)
     {
-#if !defined(LLVM_OLDER_THAN_3_9) && __has_builtin(__builtin_convertvector)
-      typedef float  vector4float  __attribute__((__vector_size__(16)));
-      typedef half  vector4half  __attribute__((__vector_size__(8)));
-      vector4half vh = ((vector4half *)data)[base_index];
-      vector4float vf = __builtin_convertvector(vh, vector4float);
-      return vf;
-#else
-      __builtin_trap();
-#endif
+      return vloada_half4(base_index, data);
     }
   const float4 one_127th = (float4) (1.0f / 127.0f);
   const float4 one_32767th = (float4) (1.0f / 32767.0f);
@@ -104,7 +101,7 @@ get_float4_pixel (void *data, size_t base_index, int type)
 
 /* only for CLK_FLOAT, CLK_SNORM_INT8, CLK_UNORM_INT8,
  * CLK_SNORM_INT16, CLK_UNORM_INT16 channel types */
-static float
+_CL_READONLY static float
 get_float_pixel (void *data, size_t base_index, int type)
 {
   if (type == CLK_FLOAT)
@@ -147,7 +144,7 @@ get_float_pixel (void *data, size_t base_index, int type)
 /* for use inside filter functions
  * no channel mapping
  * no pointers to img metadata */
-static uint4
+_CL_READONLY static uint4
 pocl_read_pixel_fast_ui (size_t base_index, int order, int elem_size,
                          void *data)
 {
@@ -184,7 +181,7 @@ pocl_read_pixel_fast_ui (size_t base_index, int order, int elem_size,
 /* for use inside filter functions
  * no channel mapping
  * no pointers to img metadata */
-static float4
+_CL_READONLY static float4
 pocl_read_pixel_fast_f (size_t base_index, int channel_type, int order,
                         void *data)
 {
@@ -203,7 +200,7 @@ pocl_read_pixel_fast_f (size_t base_index, int channel_type, int order,
 /* for use inside filter functions
  * no channel mapping
  * no pointers to img metadata */
-static int4
+_CL_READONLY static int4
 pocl_read_pixel_fast_i (size_t base_index, int order, int elem_size,
                         void *data)
 {
@@ -238,7 +235,7 @@ pocl_read_pixel_fast_i (size_t base_index, int order, int elem_size,
 
 /*************************************************************************/
 
-static int4
+_CL_READONLY static int4
 get_image_array_offset (global dev_image_t *img, int4 uvw_after_rint,
                         int4 array_coord)
 {
@@ -261,7 +258,7 @@ get_image_array_offset (global dev_image_t *img, int4 uvw_after_rint,
 }
 
 /* array_coord must be unnormalized & repeats removed */
-static int4
+_CL_READONLY static int4
 get_image_array_offset2 (global dev_image_t *img, int4 uvw_after_rint,
                          float4 array_coord)
 {
@@ -286,8 +283,8 @@ get_image_array_offset2 (global dev_image_t *img, int4 uvw_after_rint,
 }
 
 /* RET: (int4) (img.x{,y,z}, array_size, 0 {,0 ...} ) */
-static int4
-get_image_array_size (global dev_image_t *img)
+_CL_READONLY static int4
+pocl_get_image_array_size (global dev_image_t *img)
 {
   int4 imgsize = (int4) (img->_width, img->_height, img->_depth, 0);
   if (img->_image_array_size > 0)
@@ -305,7 +302,7 @@ get_image_array_size (global dev_image_t *img)
 /* Reads a four element pixel from image pointed by integer coords.
  * Returns Border color (0) for out-of-range reads. This is OK since
  * reads behind border should either return border color, or are undefined */
-static uint4
+_CL_READONLY static uint4
 pocl_read_pixel (global dev_image_t *img, int4 coord)
 {
   uint4 color;
@@ -358,11 +355,11 @@ pocl_read_pixel (global dev_image_t *img, int4 coord)
 }
 
 /* Transforms coords based on image addressing mode */
-static int4
+_CL_READONLY static int4
 pocl_address_mode (global dev_image_t *img, int4 input_coord,
-                   dev_sampler_t samp)
+                   const dev_sampler_t samp)
 {
-  if (samp & CLK_ADDRESS_CLAMP_TO_EDGE)
+  if ((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_CLAMP_TO_EDGE)
     {
       int4 max_clamp = max (
           (int4) (img->_width - 1, img->_height - 1, img->_depth - 1, 0),
@@ -370,7 +367,7 @@ pocl_address_mode (global dev_image_t *img, int4 input_coord,
       return clamp (input_coord, (int4) (0), max_clamp);
     }
 
-  if (samp & CLK_ADDRESS_CLAMP)
+  if ((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_CLAMP)
     {
       int4 max_clamp
           = max ((int4) (img->_width, img->_height, img->_depth, 0), (int4)0);
@@ -382,7 +379,7 @@ pocl_address_mode (global dev_image_t *img, int4 input_coord,
 
 /*************************************************************************/
 
-static float4
+_CL_READONLY static float4
 read_pixel_linear_3d_float (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                             int width, int height, int depth, int channel_type,
                             size_t row_pitch, size_t slice_pitch, int order,
@@ -525,7 +522,7 @@ read_pixel_linear_3d_float (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
  * with 32bit channel types may return quite bad results.
  */
 
-static uint4
+_CL_READONLY static uint4
 read_pixel_linear_3d_uint (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                            int width, int height, int depth, size_t row_pitch,
                            size_t slice_pitch, int order, int elem_size,
@@ -664,7 +661,7 @@ read_pixel_linear_3d_uint (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
   return convert_uint4 (sum);
 }
 
-static int4
+_CL_READONLY static int4
 read_pixel_linear_3d_int (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                           int width, int height, int depth, size_t row_pitch,
                           size_t slice_pitch, int order, int elem_size,
@@ -803,7 +800,7 @@ read_pixel_linear_3d_int (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
   return convert_int4 (sum);
 }
 
-static uint4
+_CL_READONLY static uint4
 read_pixel_linear_3d (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                       int width, int height, int depth, int channel_type,
                       size_t row_pitch, size_t slice_pitch, int order,
@@ -827,7 +824,7 @@ read_pixel_linear_3d (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
 
 /*************************************************************************/
 
-static float4
+_CL_READONLY static float4
 read_pixel_linear_2d_float (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                             int array_coord, int width, int height,
                             int channel_type, size_t row_pitch,
@@ -902,7 +899,7 @@ read_pixel_linear_2d_float (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
  * with 32bit channel types may return quite bad results.
  */
 
-static uint4
+_CL_READONLY static uint4
 read_pixel_linear_2d_uint (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                            int array_coord, int width, int height,
                            size_t row_pitch, size_t slice_pitch, int order,
@@ -971,7 +968,7 @@ read_pixel_linear_2d_uint (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
   return convert_uint4 (sum);
 }
 
-static int4
+_CL_READONLY static int4
 read_pixel_linear_2d_int (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                           int array_coord, int width, int height,
                           size_t row_pitch, size_t slice_pitch, int order,
@@ -1040,7 +1037,7 @@ read_pixel_linear_2d_int (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
   return convert_int4 (sum);
 }
 
-static uint4
+_CL_READONLY static uint4
 read_pixel_linear_2d (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
                       int array_coord, int width, int height, int channel_type,
                       size_t row_pitch, size_t slice_pitch, int order,
@@ -1064,7 +1061,7 @@ read_pixel_linear_2d (float4 abc, float4 one_m, int4 ijk0, int4 ijk1,
 
 /*************************************************************************/
 
-static float4
+_CL_READONLY static float4
 read_pixel_linear_1d_float (float4 abc, float4 one_m, int ijk0, int ijk1,
                             int array_coord, int width, size_t slice_pitch,
                             int channel_type, int order, void *data)
@@ -1101,8 +1098,7 @@ read_pixel_linear_1d_float (float4 abc, float4 one_m, int ijk0, int ijk1,
  * with 32bit channel types may return quite bad results.
  */
 
-static uint4
-
+_CL_READONLY static uint4
 read_pixel_linear_1d_uint (float4 abc, float4 one_m, int ijk0, int ijk1,
                            int array_coord, int width, size_t slice_pitch,
                            int order, int elem_size, void *data)
@@ -1135,7 +1131,7 @@ read_pixel_linear_1d_uint (float4 abc, float4 one_m, int ijk0, int ijk1,
   return convert_uint4 (sum);
 }
 
-static int4
+_CL_READONLY static int4
 read_pixel_linear_1d_int (float4 abc, float4 one_m, int ijk0, int ijk1,
                           int array_coord, int width, size_t slice_pitch,
                           int order, int elem_size, void *data)
@@ -1168,7 +1164,7 @@ read_pixel_linear_1d_int (float4 abc, float4 one_m, int ijk0, int ijk1,
   return convert_int4 (sum);
 }
 
-static uint4
+_CL_READONLY static uint4
 read_pixel_linear_1d (float4 abc, float4 one_m, int ijk0, int ijk1,
                       int array_coord, int width, size_t slice_pitch,
                       int channel_type, int order, int elem_size, void *data)
@@ -1197,14 +1193,14 @@ read_pixel_linear_1d (float4 abc, float4 one_m, int ijk0, int ijk1,
 #define INVALID_SAMPLER_FILTER (uint4) (0x2222)
 #define INVALID_SAMPLER_NORMAL (uint4) (0x3333)
 
-static uint4
+_CL_READONLY static uint4
 nonrepeat_filter (global dev_image_t *img, float4 orig_coord,
-                  dev_sampler_t samp)
+                  const dev_sampler_t samp)
 {
   float4 coord = orig_coord;
   if (samp & CLK_NORMALIZED_COORDS_TRUE)
     {
-      float4 imgsize = convert_float4 (get_image_array_size (img));
+      float4 imgsize = convert_float4 (pocl_get_image_array_size (img));
       coord *= imgsize;
     }
 
@@ -1267,8 +1263,8 @@ nonrepeat_filter (global dev_image_t *img, float4 orig_coord,
     }
 }
 
-static uint4
-repeat_filter (global dev_image_t *img, float4 coord, dev_sampler_t samp)
+_CL_READONLY static uint4
+repeat_filter (global dev_image_t *img, float4 coord, const dev_sampler_t samp)
 {
   int array_size = img->_image_array_size;
   int num_channels = img->_num_channels;
@@ -1285,7 +1281,7 @@ repeat_filter (global dev_image_t *img, float4 coord, dev_sampler_t samp)
            ijk = ijk – whd
          ... same for 3 coords
       */
-      int4 maxcoord = get_image_array_size (img);
+      int4 maxcoord = pocl_get_image_array_size (img);
       float4 whd = convert_float4 (maxcoord);
       float4 uvw = (coord - floor (coord)) * whd;
       int4 ijk = convert_int4 (floor (uvw));
@@ -1358,9 +1354,9 @@ repeat_filter (global dev_image_t *img, float4 coord, dev_sampler_t samp)
     }
 }
 
-static uint4
+_CL_READONLY static uint4
 mirrored_repeat_filter (global dev_image_t *img, float4 coord,
-                        dev_sampler_t samp)
+                        const dev_sampler_t samp)
 {
   int array_size = img->_image_array_size;
   int num_channels = img->_num_channels;
@@ -1380,7 +1376,7 @@ mirrored_repeat_filter (global dev_image_t *img, float4 coord,
 
       float4 ss = (float4) (2.0f) * rint ((float4) (0.5f) * coord);
       ss = fabs (coord - ss);
-      int4 maxcoord = get_image_array_size (img);
+      int4 maxcoord = pocl_get_image_array_size (img);
       float4 whd = convert_float4 (maxcoord);
       float4 uvw = ss * whd;
       int4 ijk = convert_int4 (floor (uvw));
@@ -1454,13 +1450,13 @@ mirrored_repeat_filter (global dev_image_t *img, float4 coord,
 
 /*************************************************************************/
 /* read pixel with float coordinates */
-static uint4
+_CL_READONLY static uint4
 pocl_read_pixel_floatc (global dev_image_t *img, float4 coord,
-                        dev_sampler_t samp)
+                        const dev_sampler_t samp)
 {
-  if (samp & CLK_ADDRESS_REPEAT)
+  if ((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_REPEAT)
     return repeat_filter (img, coord, samp);
-  else if (samp & CLK_ADDRESS_MIRRORED_REPEAT)
+  else if ((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_MIRRORED_REPEAT)
     return mirrored_repeat_filter (img, coord, samp);
   else
     return nonrepeat_filter (img, coord, samp);
@@ -1477,12 +1473,14 @@ pocl_read_pixel_floatc (global dev_image_t *img, float4 coord,
  * otherwise the values returned are undefined.
 */
 
-static uint4
-pocl_read_pixel_intc (global dev_image_t *img, int4 coord, dev_sampler_t samp)
+_CL_READONLY static uint4
+pocl_read_pixel_intc (global dev_image_t *img, int4 coord,
+                      const dev_sampler_t samp)
 {
   if (samp & CLK_NORMALIZED_COORDS_TRUE)
     return INVALID_SAMPLER_NORMAL;
-  if ((samp & CLK_ADDRESS_REPEAT) || (samp & CLK_ADDRESS_MIRRORED_REPEAT))
+  if (((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_REPEAT)
+      || ((samp & CLK_ADDRESS_MASK) == CLK_ADDRESS_MIRRORED_REPEAT))
     return INVALID_SAMPLER_ADDRMODE;
 
   int4 final_coord = pocl_address_mode (img, coord, samp);
@@ -1500,10 +1498,10 @@ pocl_read_pixel_intc (global dev_image_t *img, int4 coord, dev_sampler_t samp)
  * CLK_NORMALIZED_COORDS_FALSE and addressing mode to CLK_ADDRESS_NONE.
  */
 
-static uint4
+_CL_READONLY static uint4
 pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 {
-  dev_sampler_t samp
+  const dev_sampler_t samp
       = CLK_FILTER_NEAREST | CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE;
 
   int4 final_coord = pocl_address_mode (img, coord, samp);
@@ -1516,12 +1514,13 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 #if __clang_major__ > 3
 /* After Clang 4.0, the sampler_t is passed as an opaque struct (ptr)
  which we convert to int32 with the LLVM pass HandleSamplerInitialization. */
-#define READ_SAMPLER                                                    \
-    dev_sampler_t s = *__builtin_astype(sampler, dev_sampler_t*);
+#define READ_SAMPLER                                                          \
+  const dev_sampler_t s                                                       \
+      = (dev_sampler_t) (__builtin_astype (sampler, uintptr_t));
 #else
 /* Before Clang 4.0, the sampler_t was passed as an int32. */
-#define READ_SAMPLER                                                    \
-    dev_sampler_t s = __builtin_astype(sampler, dev_sampler_t);
+#define READ_SAMPLER                                                          \
+  const dev_sampler_t s = (dev_sampler_t) (__builtin_astype (sampler, int));
 #endif
 
 /* Implementation for read_image with any image data type and int coordinates
@@ -1533,7 +1532,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 
 #define IMPLEMENT_READ_INT4_IMAGE_INT_COORD(__IMGTYPE__, __RETVAL__,          \
                                             __POSTFIX__, __COORD__)           \
-  __RETVAL__ _CL_OVERLOADABLE read_image##__POSTFIX__ (                       \
+  __RETVAL__ _CL_OVERLOADABLE _CL_READONLY read_image##__POSTFIX__ (                       \
       __IMGTYPE__ image, sampler_t sampler, __COORD__ coord)                  \
   {                                                                           \
     int4 coord4;                                                              \
@@ -1546,7 +1545,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
   }
 
 #define IMPLEMENT_READ_FLOAT4_IMAGE_INT_COORD(__IMGTYPE__, __COORD__)         \
-  float4 _CL_OVERLOADABLE read_imagef (__IMGTYPE__ image, sampler_t sampler,  \
+  float4 _CL_OVERLOADABLE _CL_READONLY read_imagef (__IMGTYPE__ image, sampler_t sampler,  \
                                        __COORD__ coord)                       \
   {                                                                           \
     int4 coord4;                                                              \
@@ -1559,7 +1558,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
   }
 
 #define IMPLEMENT_READ_FLOAT4_IMAGE_FLOAT_COORD(__IMGTYPE__, __COORD__)       \
-  float4 _CL_OVERLOADABLE read_imagef (__IMGTYPE__ image, sampler_t sampler,  \
+  float4 _CL_OVERLOADABLE _CL_READONLY read_imagef (__IMGTYPE__ image, sampler_t sampler,  \
                                        __COORD__ coord)                       \
   {                                                                           \
     float4 coord4;                                                            \
@@ -1573,7 +1572,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 
 #define IMPLEMENT_READ_INT4_IMAGE_FLOAT_COORD(__IMGTYPE__, __RETVAL__,        \
                                               __POSTFIX__, __COORD__)         \
-  __RETVAL__ _CL_OVERLOADABLE read_image##__POSTFIX__ (                       \
+  __RETVAL__ _CL_OVERLOADABLE _CL_READONLY read_image##__POSTFIX__ (                       \
       __IMGTYPE__ image, sampler_t sampler, __COORD__ coord)                  \
   {                                                                           \
     float4 coord4;                                                            \
@@ -1610,7 +1609,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 
 #define IMPLEMENT_READ_INT4_IMAGE_INT_COORD_NOSAMPLER(                        \
     __IMGTYPE__, __RETVAL__, __POSTFIX__, __COORD__)                          \
-  __RETVAL__ _CL_OVERLOADABLE read_image##__POSTFIX__ (__IMGTYPE__ image,     \
+  __RETVAL__ _CL_OVERLOADABLE _CL_READONLY read_image##__POSTFIX__ (__IMGTYPE__ image,     \
                                                        __COORD__ coord)       \
   {                                                                           \
     int4 coord4;                                                              \
@@ -1623,7 +1622,7 @@ pocl_read_pixel_intc_samplerless (global dev_image_t *img, int4 coord)
 
 #define IMPLEMENT_READ_FLOAT4_IMAGE_INT_COORD_NOSAMPLER(__IMGTYPE__,          \
                                                         __COORD__)            \
-  float4 _CL_OVERLOADABLE read_imagef (__IMGTYPE__ image, __COORD__ coord)    \
+  float4 _CL_OVERLOADABLE _CL_READONLY read_imagef (__IMGTYPE__ image, __COORD__ coord)    \
   {                                                                           \
     int4 coord4;                                                              \
     INITCOORD##__COORD__ (coord4, coord);                                     \

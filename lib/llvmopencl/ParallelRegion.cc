@@ -1,19 +1,19 @@
 // Class definition for parallel regions, a group of BasicBlocks that
 // each kernel should run in parallel.
-// 
+//
 // Copyright (c) 2011 Universidad Rey Juan Carlos and
-//               2012-2015 Pekka Jääskeläinen / TUT
-// 
+//               2012-2019 Pekka Jääskeläinen
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,6 +28,10 @@
 #include <algorithm>
 
 #include "pocl.h"
+#include "pocl_cl.h"
+
+#include "CompilerWarnings.h"
+IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/ValueSymbolTable.h"
@@ -51,6 +55,7 @@ using namespace pocl;
 
 int ParallelRegion::idGen = 0;
 
+extern cl_device_id currentPoclDevice;
 
 ParallelRegion::ParallelRegion(int forcedRegionId) : 
   std::vector<llvm::BasicBlock *>(), 
@@ -79,11 +84,7 @@ ParallelRegion::GenerateTempNames(llvm::BasicBlock *bb)
           name << ".pocl_temp." << tempCounter;
           ++tempCounter;
           tempName = name.str();
-#ifdef LLVM_OLDER_THAN_4_0
-      } while (bb->getParent()->getValueSymbolTable().lookup(tempName) != NULL);
-#else
       } while (bb->getParent()->getValueSymbolTable()->lookup(tempName) != NULL);
-#endif
       instr->setName(tempName);
     }
 }
@@ -164,13 +165,8 @@ ParallelRegion::remap(ValueToValueMapTy &map)
 
     for (BasicBlock::iterator ii = (*i)->begin(), ee = (*i)->end();
          ii != ee; ++ii)
-#ifdef LLVM_OLDER_THAN_3_9
-      RemapInstruction(&*ii, map,
-                       RF_IgnoreMissingEntries | RF_NoModuleLevelChanges);
-#else
       RemapInstruction(&*ii, map,
                        RF_IgnoreMissingLocals | RF_NoModuleLevelChanges);
-#endif
 
 #ifdef DEBUG_REMAP
     std::cerr << endl << "### block after remap: " << std::endl;
@@ -182,16 +178,14 @@ ParallelRegion::remap(ValueToValueMapTy &map)
 void
 ParallelRegion::chainAfter(ParallelRegion *region)
 {
-  /* If we are replicating a conditional barrier
-     region, the last block can be an unreachable 
-     block to mark the impossible path. Skip
-     it and choose the correct branch instead. 
+  /* If we are replicating a conditional barrier region, the last block can be
+     an unreachable block to mark the impossible path. Skip it and choose the
+     correct branch instead.
 
-     TODO: why have the unreachable block there the
-     first place? Could we just not add it and fix
-     the branch? */
+     TODO: why have the unreachable block there the first place? Could we just
+     not add it and fix the branch? */
   BasicBlock *tail = region->exitBB();
-  TerminatorInst *t = tail->getTerminator();
+  auto t = tail->getTerminator();
   if (isa<UnreachableInst>(t))
     {
       tail = region->at(region->size() - 2);
@@ -215,11 +209,7 @@ ParallelRegion::chainAfter(ParallelRegion *region)
   
   for (iterator i = begin(), e = end(); i != e; ++i)
 
-#ifdef LLVM_OLDER_THAN_3_8
-    bb_list.insertAfter(tail, *i);
-#else
     bb_list.insertAfter(tail->getIterator(), *i);
-#endif
   t->setSuccessor(0, entryBB());
 
   t = exitBB()->getTerminator();
@@ -257,7 +247,7 @@ ParallelRegion::purge()
     std::cerr << "### block before purge:" << std::endl;
     (*i)->dump();
 #endif
-    TerminatorInst *t = (*i)->getTerminator();
+    auto t = (*i)->getTerminator();
     for (unsigned ii = 0, ee = t->getNumSuccessors(); ii != ee; ++ii) {
       BasicBlock *successor = t->getSuccessor(ii);
       if (count(begin(), end(), successor) == 0) {
@@ -292,43 +282,27 @@ ParallelRegion::purge()
 }
 
 void
-ParallelRegion::insertLocalIdInit(llvm::BasicBlock* entry,
-                                  unsigned x,
-                                  unsigned y,
-                                  unsigned z)
-{
-  IRBuilder<> builder(entry, entry->getFirstInsertionPt());
+ParallelRegion::insertLocalIdInit(llvm::BasicBlock* Entry,
+                                  unsigned X, unsigned Y, unsigned Z) {
 
-  Module *M = entry->getParent()->getParent();
+  IRBuilder<> Builder(Entry, Entry->getFirstInsertionPt());
 
-  int size_t_width = 32;
-#ifdef LLVM_OLDER_THAN_3_7
-  // This breaks (?) if _local_size_x is not stored in AS0,
-  // but it always will be as it's just a pseudo variable that
-  // will be scalarized.
-  if (M->getDataLayout()->getPointerSize(0) == 8)
-#else
-  if (M->getDataLayout().getPointerSize(0) == 8)
-#endif
-    size_t_width = 64;
+  Module *M = Entry->getParent()->getParent();
 
-  GlobalVariable *gvx = M->getGlobalVariable(POCL_LOCAL_ID_X_GLOBAL);
-  if (gvx != NULL)
-      builder.CreateStore(ConstantInt::get(IntegerType::
-                                           get(M->getContext(), size_t_width), 
-                                           x), gvx);
+  llvm::Type *SizeT =
+    IntegerType::get(M->getContext(), currentPoclDevice->address_bits);
 
-  GlobalVariable *gvy = M->getGlobalVariable(POCL_LOCAL_ID_Y_GLOBAL);
-  if (gvy != NULL)
-    builder.CreateStore(ConstantInt::get(IntegerType::
-                                         get(M->getContext(), size_t_width),
-                                         y), gvy);
+  GlobalVariable *GVX = M->getGlobalVariable(POCL_LOCAL_ID_X_GLOBAL);
+  if (GVX != NULL)
+      Builder.CreateStore(ConstantInt::get(SizeT, X), GVX);
 
-  GlobalVariable *gvz = M->getGlobalVariable(POCL_LOCAL_ID_Z_GLOBAL);
-  if (gvz != NULL)
-    builder.CreateStore(ConstantInt::get(IntegerType::
-                                         get(M->getContext(), size_t_width),
-                                         z), gvz);
+  GlobalVariable *GVY = M->getGlobalVariable(POCL_LOCAL_ID_Y_GLOBAL);
+  if (GVY != NULL)
+      Builder.CreateStore(ConstantInt::get(SizeT, Y), GVY);
+
+  GlobalVariable *GVZ = M->getGlobalVariable(POCL_LOCAL_ID_Z_GLOBAL);
+  if (GVZ != NULL)
+      Builder.CreateStore(ConstantInt::get(SizeT, Z), GVZ);
 }
 
 void
@@ -467,6 +441,12 @@ ParallelRegion::Verify()
   return true;
 }
 
+#ifdef LLVM_OLDER_THAN_8_0
+#define PARALLEL_MD_NAME "llvm.mem.parallel_loop_access"
+#else
+#define PARALLEL_MD_NAME "llvm.access.group"
+#endif
+
 /**
  * Adds metadata to all the memory instructions to denote
  * they originate from a parallel loop.
@@ -474,34 +454,49 @@ ParallelRegion::Verify()
  * Due to nested parallel loops, there can be multiple loop
  * references.
  *
- * Format:
- * llvm.mem.parallel_loop_access !0
+ * Format (LLVM 8+):
  *
- * !0 { metadata !0 }
+ *     !llvm.access.group !0
+ *
+ *     !0 distinct !{}
  *
  * In a 2-nested loop:
  *
- * llvm.mem.parallel_loop_access !0
+ *     !llvm.access.group !0
  *
- * !0 { metadata !1, metadata !2}
- * !1 { metadata !1 }
- * !2 { metadata !2 }
+ *     !0 { !1, !2 }
+ *     !1 distinct !{}
+ *     !2 distinct !{}
+ *
+ * Parallel loop metadata on memory reads also implies that
+ * if-conversion (i.e., speculative execution within a loop iteration)
+ * is safe. Given an instruction reading from memory,
+ * IsLoadUnconditionallySafe should return whether it is safe under
+ * (unconditional, unpredicated) speculative execution.
+ * See https://bugs.llvm.org/show_bug.cgi?id=46666
  */
 void
-ParallelRegion::AddParallelLoopMetadata(llvm::MDNode *identifier) {
-
+ParallelRegion::AddParallelLoopMetadata(
+    llvm::MDNode *Identifier,
+    std::function<bool(llvm::Instruction *)> IsLoadUnconditionallySafe) {
   for (iterator i = begin(), e = end(); i != e; ++i) {
     BasicBlock* bb = *i;      
     for (BasicBlock::iterator ii = bb->begin(), ee = bb->end();
          ii != ee; ii++) {
-      if (ii->mayReadOrWriteMemory()) {
-        MDNode *newMD = MDNode::get(bb->getContext(), identifier);
-        MDNode *oldMD = ii->getMetadata("llvm.mem.parallel_loop_access");
-        if (oldMD != NULL) {
-          newMD = llvm::MDNode::concatenate(oldMD, newMD);
-        }
-        ii->setMetadata("llvm.mem.parallel_loop_access", newMD);
+      if (!ii->mayReadOrWriteMemory()) {
+        continue;
       }
+
+      if (ii->mayReadFromMemory() && !IsLoadUnconditionallySafe(&*ii)) {
+        continue;
+      }
+
+      MDNode *NewMD = MDNode::get(bb->getContext(), Identifier);
+      MDNode *OldMD = ii->getMetadata(PARALLEL_MD_NAME);
+      if (OldMD != nullptr) {
+        NewMD = llvm::MDNode::concatenate(OldMD, NewMD);
+      }
+      ii->setMetadata(PARALLEL_MD_NAME, NewMD);
     }
   }
 }
@@ -675,15 +670,11 @@ ParallelRegion::InjectPrintF
        /*Name=*/"printf", M); 
     printfFunc->setCallingConv(CallingConv::C);
 
-#if LLVM_OLDER_THAN_5_0
-    AttributeSet func_printf_PAL;
-#else
-    AttributeList func_printf_PAL;
-#endif
-    {
-      func_printf_PAL.addAttribute( M->getContext(), 1U, Attribute::NoCapture);
-      func_printf_PAL.addAttribute( M->getContext(), 4294967295U, Attribute::NoUnwind);
-    }
+    AttributeList func_printf_PAL =
+      AttributeList()
+      .addAttribute(M->getContext(), 1U, Attribute::NoCapture)
+      .addAttribute(M->getContext(), 4294967295U, Attribute::NoUnwind);
+
     printfFunc->setAttributes(func_printf_PAL);
   }
 
@@ -693,15 +684,9 @@ ParallelRegion::InjectPrintF
   const_ptr_8_indices.push_back(const_int64_9);
   const_ptr_8_indices.push_back(const_int64_9);
   assert (isa<Constant>(stringArg));
-  #ifdef LLVM_OLDER_THAN_3_7
-  Constant* const_ptr_8 =
-    ConstantExpr::getGetElementPtr
-    (cast<Constant>(stringArg), const_ptr_8_indices);
-  #else
   Constant* const_ptr_8 =
     ConstantExpr::getGetElementPtr
     (PointerType::getUnqual(Type::getInt8Ty(M->getContext())), cast<Constant>(stringArg), const_ptr_8_indices);
-  #endif
 
   std::vector<Value*> args;
   args.push_back(const_ptr_8);

@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2014-2018 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -23,15 +23,44 @@
 #
 #=============================================================================
 
-if(ENABLE_ASAN)
-  add_compile_options(-fsanitize=address -fsanitize=leak -fsanitize=undefined -fno-omit-frame-pointer)
+# this is required, because we're compiling the C++ files of this directory
+# with LLVM-provided flags, which usually contain their own setting of
+# C++ standard, which may be in conflict with pocl's default C++ standard.
+unset(CMAKE_CXX_STANDARD)
+
+if(SANITIZER_OPTIONS)
+  add_compile_options(${SANITIZER_OPTIONS})
 endif()
 
+include_directories(AFTER "devices" "." "../llvmopencl")
 
-include_directories(BEFORE "../../fix-include/OpenCL")
-include_directories(AFTER "devices" ".")
+################################################################################
+if (MSVC)
+  set(POCL_PUBLIC_LINK_LIST ${Pthreads_LIBRARIES} ${LTTNG_UST_LDFLAGS})
+else()
+  set(POCL_PUBLIC_LINK_LIST "${DL_LIB}" ${CMAKE_THREAD_LIBS_INIT} ${LTTNG_UST_LDFLAGS} ${LIBMATH})
+endif()
+
+set(POCL_PRIVATE_LINK_LIST ${CLANG_LIBFILES} ${POCL_LLVM_LIBS} ${LLVM_SYSLIBS})
+
+if(SANITIZER_OPTIONS)
+  list(INSERT POCL_PUBLIC_LINK_LIST 0 ${SANITIZER_LIBS})
+endif()
+
+if(Hwloc_LDFLAGS)
+  list(INSERT POCL_PUBLIC_LINK_LIST 0 ${Hwloc_LDFLAGS})
+else()
+  list(INSERT POCL_PUBLIC_LINK_LIST 0 ${Hwloc_LIBRARIES})
+endif()
+
+# -lrt is required for glibc < 2.17
+if(HAVE_CLOCK_GETTIME AND CMAKE_SYSTEM_NAME MATCHES "Linux")
+  list(APPEND POCL_PUBLIC_LINK_LIST "rt")
+endif()
 
 add_subdirectory("devices")
+
+###############################################################################
 
 set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clReleaseContext.c"
@@ -58,6 +87,7 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clSetMemObjectDestructorCallback.c"
                    "clCreateProgramWithSource.c"
                    "clCreateProgramWithBinary.c"
+                   "clCreateProgramWithIL.c"
                    "clCreateProgramWithBuiltInKernels.c"
                    "clReleaseProgram.c"
                    "clRetainProgram.c"
@@ -125,9 +155,8 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clReleaseDevice.c"
                    "clRetainDevice.c"
                    "clCreateSubDevices.c"
-				           "clUnloadPlatformCompiler.c"
+                   "clUnloadPlatformCompiler.c"
                    "pocl_cl.h" "pocl_util.h" "pocl_util.c"
-                   "pocl_queue_util.h" "pocl_queue_util.c"
                    "pocl_image_util.c" "pocl_image_util.h"
                    "pocl_img_buf_cpy.c"
                    "pocl_icd.h" "pocl_llvm.h"
@@ -140,19 +169,32 @@ set(POCL_LIB_SOURCES  "clCreateContextFromType.c"
                    "clEnqueueSVMMap.c" "clEnqueueSVMUnmap.c"
                    "clEnqueueSVMMemcpy.c" "clEnqueueSVMMemFill.c"
                    "clSetKernelArgSVMPointer.c" "clSetKernelExecInfo.c"
-                   "pocl_binary.c")
+                   "pocl_binary.c" "pocl_opengl.c" "pocl_cq_profiling.c")
+
+if(ANDROID)
+  list(APPEND POCL_LIB_SOURCES "pocl_mkstemp.c")
+endif()
 
 set(LIBPOCL_OBJS "$<TARGET_OBJECTS:libpocl_unlinked_objs>"
                  "$<TARGET_OBJECTS:pocl_cache>"
                  ${POCL_DEVICES_OBJS})
 
 add_library("pocl_cache" OBJECT "pocl_cache.c")
+harden("pocl_cache")
 
 if (OCS_AVAILABLE)
   include_directories(${LLVM_INCLUDE_DIRS})
-  list(APPEND POCL_LIB_SOURCES "pocl_llvm_api.cc")
-  set_source_files_properties("pocl_llvm_api.cc" PROPERTIES COMPILE_FLAGS "${LLVM_CXXFLAGS} -I\"${CMAKE_CURRENT_SOURCE_DIR}/../llvmopencl\"")
+  set(LLVM_API_SOURCES "pocl_llvm_build.cc" "pocl_llvm_metadata.cc" "pocl_llvm_utils.cc" "pocl_llvm_wg.cc")
+  set_source_files_properties(${LLVM_API_SOURCES} PROPERTIES COMPILE_FLAGS "${LLVM_CXXFLAGS} -I\"${CMAKE_CURRENT_SOURCE_DIR}/../llvmopencl\"")
+
+  add_library("lib_cl_llvm" OBJECT ${LLVM_API_SOURCES})
+  harden("lib_cl_llvm")
+
+
   list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:llvmpasses>")
+  list(APPEND LIBPOCL_OBJS "$<TARGET_OBJECTS:lib_cl_llvm>")
+
+
   # pocl_cache.c depends on a SHA1 hash of all built kernel-<target>.bc
   add_dependencies("pocl_cache" "kernellib_hash")
 else()
@@ -172,31 +214,25 @@ endif(MSVC)
 
 # this is so that we don't compile twice when building both libpocl and libOpenCL
 add_library("libpocl_unlinked_objs" OBJECT ${POCL_LIB_SOURCES})
+harden("libpocl_unlinked_objs")
 
 #################################################################
 
-if (MSVC)
-  set(POCL_PUBLIC_LINK_LIST ${Pthreads_LIBRARIES} ${POCL_DEVICES_LINK_LIST} ${LTTNG_UST_LDFLAGS})
-else()
-  set(POCL_PUBLIC_LINK_LIST "${LTDL_LIB}" ${CMAKE_THREAD_LIBS_INIT} ${POCL_DEVICES_LINK_LIST} ${LTTNG_UST_LDFLAGS})
-endif()
-
-set(POCL_PRIVATE_LINK_LIST ${CLANG_LIBFILES} ${POCL_LLVM_LIBS} ${LLVM_SYSLIBS})
-if(ENABLE_ASAN)
-  list(APPEND POCL_PRIVATE_LINK_LIST "asan" "ubsan")
-endif()
+if (POCL_DEVICES_LINK_LIST)
+  list(INSERT POCL_PUBLIC_LINK_LIST 0 ${POCL_DEVICES_LINK_LIST})
+endif ()
 
 # see lib/CMakeLists.txt
 set(POCL_TRANSITIVE_LIBS ${POCL_PRIVATE_LINK_LIST} PARENT_SCOPE)
 
-# -lrt is required for glibc < 2.17
-if(HAVE_CLOCK_GETTIME AND (NOT WIN32))
-  list(APPEND POCL_PUBLIC_LINK_LIST "rt")
-endif()
-
 #################################################################
 
-add_library("${POCL_LIBRARY_NAME}" ${LIBPOCL_OBJS} )
+if(ANDROID)
+  add_library("${POCL_LIBRARY_NAME}" STATIC ${LIBPOCL_OBJS})
+else()
+  add_library("${POCL_LIBRARY_NAME}" ${LIBPOCL_OBJS})
+endif()
+harden("${POCL_LIBRARY_NAME}")
 
 set_target_properties("${POCL_LIBRARY_NAME}" PROPERTIES SOVERSION "${LIB_API_VERSION}"
   VERSION "${LIB_BUILD_VERSION}" 
@@ -204,5 +240,8 @@ set_target_properties("${POCL_LIBRARY_NAME}" PROPERTIES SOVERSION "${LIB_API_VER
 
 target_link_libraries("${POCL_LIBRARY_NAME}" PUBLIC ${POCL_PUBLIC_LINK_LIST} PRIVATE ${POCL_PRIVATE_LINK_LIST} )
 install(TARGETS "${POCL_LIBRARY_NAME}"
+        ARCHIVE DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}/static
+        COMPONENT "dev"
         LIBRARY DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}
-        ARCHIVE DESTINATION ${POCL_INSTALL_PUBLIC_LIBDIR}/static)
+        COMPONENT "lib"
+)

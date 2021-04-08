@@ -25,6 +25,7 @@
 #include "pocl_cache.h"
 #include "pocl_cl.h"
 #include "pocl_file_util.h"
+#include "pocl_llvm.h"
 #include "pocl_shared.h"
 #include "pocl_util.h"
 #include <string.h>
@@ -93,7 +94,7 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
       POCL_GOTO_ERROR_ON((!found), CL_INVALID_DEVICE,
         "device not found in the device list of the context\n");
     }
-  
+
   if ((program = (cl_program) calloc (1, sizeof (struct _cl_program))) == NULL)
     {
       errcode = CL_OUT_OF_HOST_MEMORY;
@@ -114,8 +115,6 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
        calloc (num_devices, sizeof(char*))) == NULL ||
       ((program->llvm_irs =
         (void**) calloc (num_devices, sizeof(void*))) == NULL) ||
-      ((program->read_locks =
-        (void**) calloc (num_devices, sizeof(void*))) == NULL) ||
       ((program->build_hash = (SHA1_digest_t*)
         calloc (num_devices, sizeof(SHA1_digest_t))) == NULL))
     {
@@ -127,7 +126,7 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
   program->num_devices = num_devices;
   program->devices = unique_devlist;
   program->build_status = CL_BUILD_NONE;
-  program->binary_type = CL_PROGRAM_BINARY_TYPE_EXECUTABLE;
+  program->binary_type = CL_PROGRAM_BINARY_TYPE_NONE;
   char program_bc_path[POCL_FILENAME_LENGTH];
 
   if (allow_empty_binaries && (lengths == NULL) && (binaries == NULL))
@@ -135,6 +134,7 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
 
   for (i = 0; i < num_devices; ++i)
     {
+#ifdef OCS_AVAILABLE
       /* LLVM IR */
       if (!strncmp((const char *)binaries[i], "BC", 2))
         {
@@ -144,8 +144,10 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
           if (binary_status != NULL)
             binary_status[i] = CL_SUCCESS;
         }
+      else
+#endif
       /* Poclcc binary */
-      else if (pocl_binary_check_binary(device_list[i], binaries[i]))
+      if (pocl_binary_check_binary(device_list[i], binaries[i]))
         {
           program->pocl_binary_sizes[i] = lengths[i];
           program->pocl_binaries[i] = (unsigned char*) malloc (lengths[i]);
@@ -156,8 +158,6 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
             (program, i, NULL, 0, program_bc_path);
           POCL_GOTO_ERROR_ON((error != 0), CL_BUILD_PROGRAM_FAILURE,
                              "Could not create program cachedir");
-          void* write_cache_lock = pocl_cache_acquire_writer_lock_i (program, i);
-          assert (write_cache_lock);
           POCL_GOTO_ERROR_ON(pocl_binary_deserialize (program, i),
                              CL_INVALID_BINARY,
                              "Could not unpack a pocl binary\n");
@@ -168,7 +168,6 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
                               (char **)(&program->binaries[i]),
                               (uint64_t *)(&program->binary_sizes[i]));
             }
-          pocl_cache_release_lock (write_cache_lock);
 
           if (binary_status != NULL)
             binary_status[i] = CL_SUCCESS;
@@ -176,6 +175,7 @@ create_program_skeleton (cl_context context, cl_uint num_devices,
       /* Unknown binary */
       else
         {
+          POCL_MSG_WARN ("Could not recognize binary\n");
           if (binary_status != NULL)
             binary_status[i] = CL_INVALID_BINARY;
           errcode = CL_INVALID_BINARY;
@@ -190,10 +190,6 @@ SUCCESS:
     *errcode_ret = CL_SUCCESS;
   return program;
 
-#if 0
-ERROR_CLEAN_PROGRAM_BINARIES_AND_DEVICES:
-  POCL_MEM_FREE(program->devices);
-#endif
 ERROR_CLEAN_PROGRAM_AND_BINARIES:
   if (program->binaries)
     for (i = 0; i < num_devices; ++i)
@@ -205,15 +201,12 @@ ERROR_CLEAN_PROGRAM_AND_BINARIES:
       POCL_MEM_FREE(program->pocl_binaries[i]);
   POCL_MEM_FREE(program->pocl_binaries);
   POCL_MEM_FREE(program->pocl_binary_sizes);
-/*ERROR_CLEAN_PROGRAM:*/
   POCL_MEM_FREE(program);
 ERROR:
   POCL_MEM_FREE(unique_devlist);
-    if(errcode_ret != NULL)
-      {
-        *errcode_ret = errcode;
-      }
-    return NULL;
+  if (errcode_ret != NULL)
+    *errcode_ret = errcode;
+  return NULL;
 }
 
 CL_API_ENTRY cl_program CL_API_CALL POname (clCreateProgramWithBinary) (

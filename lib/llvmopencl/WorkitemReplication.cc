@@ -80,14 +80,7 @@ WorkitemReplication::getAnalysisUsage(AnalysisUsage &AU) const
 {
   AU.addRequired<DominatorTreeWrapperPass>();
 
-#ifdef LLVM_OLDER_THAN_3_7
-  AU.addRequired<LoopInfo>();
-#else
   AU.addRequired<LoopInfoWrapperPass>();
-#endif
-#ifdef LLVM_OLDER_THAN_3_7
-  AU.addRequired<DataLayoutPass>();
-#endif
   AU.addRequired<pocl::WorkitemHandlerChooser>();
   AU.addPreserved<pocl::VariableUniformityAnalysis>();
 }
@@ -105,11 +98,7 @@ WorkitemReplication::runOnFunction(Function &F)
   DTP = &getAnalysis<DominatorTreeWrapperPass>();
   DT = &DTP->getDomTree();
 
-#ifdef LLVM_OLDER_THAN_3_7
-  LI = &getAnalysis<LoopInfo>();
-#else
   LI = &getAnalysis<LoopInfoWrapperPass>();
-#endif
 
   bool changed = ProcessFunction(F);
 #ifdef DUMP_RESULT_CFG
@@ -143,13 +132,8 @@ WorkitemReplication::ProcessFunction(Function &F)
         original_bbs.push_back(&*i);
   }
 
-#ifdef LLVM_OLDER_THAN_3_7
-  ParallelRegion::ParallelRegionVector* original_parallel_regions =
-    K->getParallelRegions(LI);
-#else
   ParallelRegion::ParallelRegionVector* original_parallel_regions =
     K->getParallelRegions(&LI->getLoopInfo());
-#endif
 
   std::vector<ParallelRegion::ParallelRegionVector> parallel_regions(
       workitem_count);
@@ -194,11 +178,7 @@ WorkitemReplication::ProcessFunction(Function &F)
               pr->end()) {
             // User is not in the defining region.
             ++ContextValues;
-#ifdef LLVM_OLDER_THAN_3_7
-            ContextSize += F.getParent()->getDataLayout()->getTypeAllocSize(i3->getType());
-#else
             ContextSize += F.getParent()->getDataLayout().getTypeAllocSize(i3->getType());
-#endif
             break;
           }
         }
@@ -322,7 +302,16 @@ WorkitemReplication::ProcessFunction(Function &F)
 
   //pocl::dumpCFG(F, F.getName().str() + ".after_repl.dot", original_parallel_regions);
 
-//  F.viewCFG();
+  for (size_t j = 0; j < parallel_regions.size(); ++j) {
+    for (auto i = parallel_regions[j].begin(),
+              e = parallel_regions[j].end();
+              i != e; ++i) {
+      ParallelRegion *p = *i;
+      delete p;
+    }
+  }
+  delete original_parallel_regions;
+  original_parallel_regions = nullptr;
 
   return true;
 }

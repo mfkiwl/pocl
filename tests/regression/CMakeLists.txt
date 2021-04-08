@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2014 pocl developers
+#   Copyright (c) 2014-2017 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -23,8 +23,6 @@
 #
 #=============================================================================
 
-# Mac OS X currently can't digest cl2.hpp, which all reg tests include
-if(NOT APPLE)
 
 set(C_PROGRAMS_TO_BUILD test_assign_loop_variable_to_privvar_makes_it_local
      test_program_from_binary_with_local_1_1_1
@@ -45,8 +43,11 @@ set(PROGRAMS_TO_BUILD test_barrier_between_for_loops test_early_return
   test_barrier_before_return test_infinite_loop test_constant_array
   test_undominated_variable test_setargs test_null_arg
   test_fors_with_var_iteration_counts test_issue_231 test_issue_445
-  test_autolocals_in_constexprs)
-
+  test_autolocals_in_constexprs test_issue_553 test_issue_577 test_issue_757
+  test_flatten_barrier_subs test_alignment_with_dynamic_wg
+  test_alignment_with_dynamic_wg2 test_alignment_with_dynamic_wg3
+  test_issue_893
+)
 
 if (MSVC)
   add_compile_options(${OPENCL_CFLAGS})
@@ -65,7 +66,19 @@ endforeach()
 
 ######################################################################
 
-#AT_SETUP([phi nodes not replicated (repl) - lp:927573])
+add_test_pocl(NAME "regression/test_issue_231" COMMAND "test_issue_231")
+
+add_test_pocl(NAME "regression/test_issue_445" COMMAND "test_issue_445")
+
+add_test_pocl(NAME "regression/test_issue_553" COMMAND "test_issue_553")
+
+add_test_pocl(NAME "regression/test_issue_577" COMMAND "test_issue_577")
+
+add_test_pocl(NAME "regression/test_issue_757" COMMAND "test_issue_757")
+
+add_test_pocl(NAME "regression/test_issue_893" COMMAND "test_issue_893")
+
+add_test_pocl(NAME "regression/test_flatten_barrier_subs" COMMAND "test_flatten_barrier_subs" EXPECTED_OUTPUT "test_flatten_barrier_subs.output")
 
 # repl
 
@@ -120,6 +133,55 @@ set_tests_properties("regression/phi_nodes_not_replicated_REPL"
     PROCESSORS 1
     DEPENDS "pocl_version_check"
     LABELS "internal;regression")
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_114" COMMAND "test_alignment_with_dynamic_wg" 1 1 4)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_117" COMMAND "test_alignment_with_dynamic_wg" 1 1 7)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_225" COMMAND "test_alignment_with_dynamic_wg" 2 2 5)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_173" COMMAND "test_alignment_with_dynamic_wg" 1 7 3)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_183" COMMAND "test_alignment_with_dynamic_wg" 1 8 3)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_283" COMMAND "test_alignment_with_dynamic_wg" 2 8 3)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_332" COMMAND "test_alignment_with_dynamic_wg" 3 3 2)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg_323" COMMAND "test_alignment_with_dynamic_wg" 3 2 3)
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg2" COMMAND "test_alignment_with_dynamic_wg2")
+
+add_test_pocl(NAME "regression/test_alignment_with_dynamic_wg3" COMMAND "test_alignment_with_dynamic_wg3")
+
+set_tests_properties(
+  "regression/test_alignment_with_dynamic_wg_114"
+
+  "regression/test_alignment_with_dynamic_wg_117"
+
+  "regression/test_alignment_with_dynamic_wg_225"
+
+  "regression/test_alignment_with_dynamic_wg_173"
+
+  "regression/test_alignment_with_dynamic_wg_183"
+
+  "regression/test_alignment_with_dynamic_wg_283"
+
+  "regression/test_alignment_with_dynamic_wg_332"
+
+  "regression/test_alignment_with_dynamic_wg_323"
+
+  "regression/test_alignment_with_dynamic_wg2"
+
+  "regression/test_alignment_with_dynamic_wg3"
+
+  PROPERTIES
+    ENVIRONMENT "POCL_WORK_GROUP_METHOD=workitemloops"
+    COST 1.5
+    PROCESSORS 1
+    DEPENDS "pocl_version_check"
+    LABELS "internal;regression")
+
 
 
 # loops
@@ -189,17 +251,28 @@ add_test_pocl(NAME "regression/case_with_multiple_variable_length_loops_and_a_ba
 
 add_test_pocl(NAME "regression/autolocals_in_constexprs" COMMAND "test_autolocals_in_constexprs")
 
-# these 2 will fail
 add_test_pocl(NAME "regression/struct_kernel_arguments" COMMAND "test_structs_as_args")
 
 add_test_pocl(NAME "regression/vector_kernel_arguments" COMMAND "test_vectors_as_args")
+
+set(TCE_TESTS "regression/barrier_between_two_for_loops_LOOPS"
+  "regression/barrier_between_two_for_loops_REPL"
+  "regression/for-loop_with_computation_after_the_brexit_REPL"
+  "regression/for-loop_with_computation_after_the_brexit_LOOPS"
+  "regression/early_return_before_a_barrier_region_REPL"
+  "regression/early_return_before_a_barrier_region_LOOPS")
 
 set_tests_properties("regression/setting_a_buffer_argument_to_NULL_causes_a_segfault"
   "regression/clSetKernelArg_overwriting_the_previous_kernel's_args"
   "regression/passing_a_constant_array_as_an_arg"
   "regression/case_with_multiple_variable_length_loops_and_a_barrier_in_one"
   "regression/struct_kernel_arguments" "regression/vector_kernel_arguments"
-  "regression/autolocals_in_constexprs"
+  "regression/autolocals_in_constexprs" "regression/test_issue_231"
+  "regression/test_issue_445" "regression/test_issue_553"
+  "regression/test_issue_577" "regression/test_issue_757"
+  "regression/test_issue_893"
+  "regression/test_flatten_barrier_subs"
+  ${TCE_TESTS}
   PROPERTIES
     COST 1.5
     PROCESSORS 1
@@ -208,14 +281,11 @@ set_tests_properties("regression/setting_a_buffer_argument_to_NULL_causes_a_segf
 
 # Label tests that also work with TCE
 
-set_tests_properties("regression/barrier_between_two_for_loops_LOOPS"
-  "regression/barrier_between_two_for_loops_REPL"
-  "regression/for-loop_with_computation_after_the_brexit_REPL"
-  "regression/for-loop_with_computation_after_the_brexit_LOOPS"
-  "regression/early_return_before_a_barrier_region_REPL"
-  "regression/early_return_before_a_barrier_region_LOOPS"
-  PROPERTIES
-    LABELS "internal;regression;tce")
+# TODO fails with TCE + LLVM 6, issue #609
+list(REMOVE_ITEM TCE_TESTS
+  "regression/barrier_between_two_for_loops_LOOPS" )
+
+set_property(TEST ${TCE_TESTS} APPEND PROPERTY LABELS "tce")
 
 # Label tests that work with CUDA backend
 set_property(TEST
@@ -238,35 +308,50 @@ set_property(TEST
   "regression/for-loop_with_computation_after_the_brexit_LOOPS"
   "regression/for-loop_with_a_variable_iteration_count_LOOPS"
   "regression/early_return_before_a_barrier_region_LOOPS"
-  "regression/id-dependent_computation_before_kernel_exit_LOOPS"
   "regression/barrier_just_before_return_LOOPS"
   "regression/undominated_variable_from_conditional_barrier_handling_LOOPS"
   "regression/assigning_a_loop_iterator_variable_to_a_private_makes_it_local_LOOPS"
   "regression/test_program_from_binary_with_local_1_1_1_LOOPS"
   "regression/setting_a_buffer_argument_to_NULL_causes_a_segfault"
   "regression/clSetKernelArg_overwriting_the_previous_kernel's_args"
-  "regression/case_with_multiple_variable_length_loops_and_a_barrier_in_one"
   "regression/vector_kernel_arguments"
   "regression/autolocals_in_constexprs"
   APPEND PROPERTY LABELS "cuda")
 
-# The vector/struct kernel arguments are known to be flaky and
-# work by luck sometimes. Disable them for now.
-#if((LLVM_CXXFLAGS MATCHES "_DEBUG") OR (NOT LLVM_CXXFLAGS MATCHES "DNDEBUG"))
-#  set_tests_properties("regression/vector_kernel_arguments"
-#    PROPERTIES  WILL_FAIL 1)
-#endif()
-
-if (NOT CLANG_IS_PATCHED_FOR_SPIR_CC)
-set_tests_properties("regression/struct_kernel_arguments"
-                      PROPERTIES  WILL_FAIL 1)
-
-if(ARM64)
-  set_tests_properties("regression/vector_kernel_arguments"
-    PROPERTIES  WILL_FAIL 1)
+if(LLVM_VERSION_MAJOR GREATER 7)
+ set_property(TEST
+   "regression/case_with_multiple_variable_length_loops_and_a_barrier_in_one"
+  APPEND PROPERTY LABELS "cuda")
 endif()
 
-endif()
+# Label tests that work with HSA runtime with native kernel compilation
+set_property(TEST
+  "regression/phi_nodes_not_replicated_REPL"
+  "regression/issues_with_local_pointers_REPL"
+  "regression/barrier_between_two_for_loops_REPL"
+  "regression/simple_for-loop_with_a_barrier_inside_REPL"
+  "regression/id-dependent_computation_before_kernel_exit_REPL"
+  "regression/assigning_a_loop_iterator_variable_to_a_private_makes_it_local_REPL"
+  "regression/phi_nodes_not_replicated_LOOPS"
+  "regression/issues_with_local_pointers_LOOPS"
+  "regression/barrier_between_two_for_loops_LOOPS"
+  "regression/simple_for-loop_with_a_barrier_inside_LOOPS"
+  "regression/for-loop_with_computation_after_the_brexit_LOOPS"
+  "regression/for-loop_with_computation_after_the_brexit_REPL"
+  "regression/for-loop_with_a_variable_iteration_count_LOOPS"
+  "regression/for-loop_with_a_variable_iteration_count_REPL"
+  "regression/id-dependent_computation_before_kernel_exit_LOOPS"
+  "regression/barrier_just_before_return_LOOPS"
+  "regression/undominated_variable_from_conditional_barrier_handling_LOOPS"
+  "regression/assigning_a_loop_iterator_variable_to_a_private_makes_it_local_LOOPS"
+  "regression/setting_a_buffer_argument_to_NULL_causes_a_segfault"
+  "regression/early_return_before_a_barrier_region_LOOPS"
+  "regression/autolocals_in_constexprs"
+  "regression/test_issue_445"
+  "regression/test_issue_553"
+  "regression/test_issue_577"
+  APPEND PROPERTY LABELS "hsa-native")
+
 
 ###################################################################
 
@@ -279,5 +364,3 @@ set_tests_properties(
 "changing the value at global_id: 6, local_id 2, group_id 1, to: 3
 value is changed at global_id: 6, local_id 2, group_id 1, to: 3
 ")
-
-endif()

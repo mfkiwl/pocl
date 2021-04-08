@@ -40,7 +40,6 @@ extern size_t _global_offset_z;
 size_t _CL_OVERLOADABLE
 get_local_id(unsigned int dimindx);
 
-
 /* attribute optnone disables all optimizations.
  * This was necessary, because running opt on kernel library
  * introduced global "switch tables" (@switch.table.XX)
@@ -50,9 +49,9 @@ get_local_id(unsigned int dimindx);
  * undefined references in final .so
  */
 
-
+__attribute__ ((optnone, noinline))
 size_t _CL_OVERLOADABLE
-get_global_id(unsigned int dimindx) __attribute__ ((optnone))
+get_global_id(unsigned int dimindx)
 {
   switch(dimindx)
     {

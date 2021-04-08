@@ -1,25 +1,25 @@
 /* pocl_llvm.h: interface to call LLVM and Clang.
 
    Copyright (c) 2013 Kalle Raiskila and
-                      Pekka Jääskeläinen
-   
+                 2013-2019 Pekka Jääskeläinen
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
+   of this software and associated documentation files (the "Software"), to
+   deal in the Software without restriction, including without limitation the
+   rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+   sell copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-   THE SOFTWARE.
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
 */
 
 #pragma once
@@ -29,55 +29,65 @@
 extern "C" {
 #endif
 
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
-
 /* Returns the cpu name as reported by LLVM. */
-char* get_cpu_name();
+POCL_EXPORT
+char *get_llvm_cpu_name ();
+/* Returns if the cpu supports FMA instruction (uses LLVM). */
+int cpu_has_fma();
+
+int bitcode_is_spir(const char *bitcode, size_t size);
+
+int bitcode_is_spirv(const char *bitcode, size_t size, int *is_opencl);
+
+/* Sets up the native/preferred vector widths at runtime (using LLVM). */
+void cpu_setup_vector_widths(cl_device_id dev);
 
 /* Compiles an .cl file into LLVM IR.
  */
 int pocl_llvm_build_program(cl_program program,
                             unsigned device_i,
-                            const char* user_options_cstr,
+                            const char *user_options_cstr,
                             char *program_bc_path,
                             cl_uint num_input_headers,
                             const cl_program *input_headers,
-                            const char **header_include_names);
-
+                            const char **header_include_names,
+                            int linking_program);
 
 /* Retrieve metadata of the given kernel in the program to populate the
  * cl_kernel object.
  */
-int pocl_llvm_get_kernel_metadata
-(cl_program program, 
- cl_kernel kernel,
- int device_i,     
- const char* kernel_name,
- int *errcode);
+int pocl_llvm_get_kernels_metadata(cl_program program, unsigned device_i);
 
-/* This function links the input kernel LLVM bitcode and the
- * OpenCL kernel runtime library into one LLVM module, then
- * runs pocl's kernel compiler passes on that module to produce 
- * a function that executes all work-items in a work-group.
+/* This function links the input kernel LLVM bitcode and the OpenCL kernel
+ * runtime library into one LLVM module, then runs pocl's kernel compiler
+ * passes on that module to produce a function that executes all work-items in
+ * a work-group.
  *
- * Output is a LLVM bitcode file that contains a work-group function
- * and its associated launchers. 
- *
- * TODO: this is not thread-safe, it changes the LLVM global options to
- * control the compilation. We should enforce only one compilations is done
- * at a time or control the options through thread safe methods.
+ * Output is a LLVM bitcode file that contains a work-group function and its
+ * associated launchers. If @param Specialize is set to true, generates a
+ * WG function that might be specialized according to the properties of
+ * the given Command.
  */
-int pocl_llvm_generate_workgroup_function(cl_device_id device,
-                                          cl_kernel kernel, size_t local_x,
-                                          size_t local_y, size_t local_z);
+int pocl_llvm_generate_workgroup_function (unsigned DeviceI,
+                                           cl_device_id Device,
+                                           cl_kernel Kernel,
+                                           _cl_command_node *Command,
+                                           int Specialize);
 
+int pocl_llvm_generate_workgroup_function_nowrite (
+    unsigned DeviceI, cl_device_id Device, cl_kernel Kernel,
+    _cl_command_node *Command, void **output, int Specialize);
 /**
  * Free the LLVM IR of a program for a given device
  */
-void pocl_free_llvm_irs(cl_program program, int device_i);
+void pocl_free_llvm_irs(cl_program program, unsigned device_i);
 
+/* calls delete on the module. */
+void pocl_destroy_llvm_module(void *modp);
+
+int pocl_llvm_remove_file_on_signal (const char *file);
+
+void pocl_llvm_release();
 /**
  * Update the program->binaries[] representation of the kernels
  * from the program->llvm_irs[] representation.
@@ -90,32 +100,17 @@ void pocl_llvm_update_binaries (cl_program program);
  *
  * Results are valid as long as program binary is not modified.
  */
-unsigned pocl_llvm_get_kernel_count(cl_program program);
-
-/**
- * Find the "__kernel" function names in 'program',
- * filling the callee-allocated array with pointer to the program binary.
- * No more than 'max_num_krn' are written.
- *
- * Results are valid as long as program binary is not modified.
- *
- * Returns the number of kernels found in the program (may be greater than
- * 'max_num_krn')
- */
-unsigned pocl_llvm_get_kernel_names( cl_program program, char **knames, unsigned max_num_krn);
+unsigned pocl_llvm_get_kernel_count(cl_program program, unsigned device_i);
 
 /** Compile the kernel in infile from LLVM bitcode to native object file for
  * device, into outfile.
  */
-int pocl_llvm_codegen ( cl_kernel kernel,
-                        cl_device_id device,
-                        const char *infile,
-                        const char *outfile);
+int pocl_llvm_codegen(cl_device_id device, void *modp,
+                      char **output, uint64_t *output_size);
 
 /* Parse program file and populate program's llvm_irs */
 int
-pocl_update_program_llvm_irs(cl_program program, unsigned device_i,
-                             cl_device_id device);
+pocl_update_program_llvm_irs(cl_program program, unsigned device_i);
 
 
 int pocl_llvm_link_program(cl_program program,
@@ -124,12 +119,9 @@ int pocl_llvm_link_program(cl_program program,
                            cl_uint num_input_programs,
                            unsigned char **cur_device_binaries,
                            size_t *cur_device_binary_sizes,
-                           void **cur_llvm_irs);
+                           void **cur_llvm_irs, int create_library, int spir);
 
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+int pocl_invoke_clang(cl_device_id Device, const char** Args);
 
 
 #ifdef __cplusplus

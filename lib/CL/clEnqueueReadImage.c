@@ -49,12 +49,23 @@ CL_API_SUFFIX__VERSION_1_0
 
   POCL_RETURN_ERROR_COND((ptr == NULL), CL_INVALID_VALUE);
 
+  if (IS_IMAGE1D_BUFFER (image))
+    {
+      IMAGE1D_ORIG_REG_TO_BYTES (image, origin, region);
+      return POname (clEnqueueReadBuffer) (
+          command_queue, image,
+          blocking_read,
+          i1d_origin[0], i1d_region[0],
+          ptr,
+          num_events_in_wait_list, event_wait_list, event);
+    }
+
   POCL_RETURN_ERROR_ON((command_queue->context != image->context),
     CL_INVALID_CONTEXT, "image and command_queue are not from the same context\n");
 
-  POCL_RETURN_ERROR_ON (
-      (!command_queue->device->image_support), CL_INVALID_OPERATION,
-      "Device %s does not support images\n", command_queue->device->long_name);
+  POCL_RETURN_ERROR_ON ((!image->is_image), CL_INVALID_MEM_OBJECT,
+                        "image argument is not an image\n");
+  POCL_RETURN_ON_UNSUPPORTED_IMAGE (image, command_queue->device);
 
   errcode = pocl_check_event_wait_list (command_queue, num_events_in_wait_list,
                                         event_wait_list);
@@ -64,7 +75,7 @@ CL_API_SUFFIX__VERSION_1_0
   POCL_RETURN_ERROR_ON (
       (image->flags & (CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)),
       CL_INVALID_OPERATION,
-      "image buffer has been created with CL_MEM_HOST_READ_ONLY "
+      "image has been created with CL_MEM_HOST_WRITE_ONLY "
       "or CL_MEM_HOST_NO_ACCESS\n");
 
   if (image->buffer)
@@ -72,7 +83,7 @@ CL_API_SUFFIX__VERSION_1_0
         (image->buffer->flags
          & (CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)),
         CL_INVALID_OPERATION,
-        "Image buffer has been created with CL_MEM_HOST_WRITE_ONLY "
+        "1D Image buffer has been created with CL_MEM_HOST_WRITE_ONLY "
         "or CL_MEM_HOST_NO_ACCESS\n");
 
   if (errcode != CL_SUCCESS)
@@ -81,11 +92,6 @@ CL_API_SUFFIX__VERSION_1_0
   errcode = pocl_check_image_origin_region (image, origin, region);
   if (errcode != CL_SUCCESS)
     return errcode;
-
-  size_t tuned_origin[3] = {origin[0] * image->image_elem_size * image->image_channels, origin[1], 
-                            origin[2]};
-  size_t tuned_region[3] = {region[0] * image->image_elem_size * image->image_channels, region[1], 
-                            region[2]};
   
   errcode = pocl_create_command (&cmd, command_queue, CL_COMMAND_READ_IMAGE,
                                 event, num_events_in_wait_list, 
@@ -96,21 +102,21 @@ CL_API_SUFFIX__VERSION_1_0
       return errcode;
     }
 
-  cmd->command.read_image.b_rowpitch = image->image_row_pitch;
-  cmd->command.read_image.b_slicepitch = image->image_slice_pitch;
-  cmd->command.read_image.h_rowpitch
-      = (row_pitch ? row_pitch : tuned_region[0]);
-  cmd->command.read_image.h_slicepitch
-      = (slice_pitch ? slice_pitch : (tuned_region[0] * region[1]));
-  memcpy ((cmd->command.read_image.origin), tuned_origin, 3 * sizeof (size_t));
-  memcpy ((cmd->command.read_image.region), tuned_region, 3 * sizeof (size_t));
+  cl_device_id dev = command_queue->device;
+  cmd->command.read_image.src_mem_id = &image->device_ptrs[dev->dev_id];
+  cmd->command.read_image.dst_host_ptr = ptr;
+  cmd->command.read_image.dst_mem_id = NULL;
 
-  HANDLE_IMAGE1D_BUFFER (image);
+  cmd->command.read_image.origin[0] = origin[0];
+  cmd->command.read_image.origin[1] = origin[1];
+  cmd->command.read_image.origin[2] = origin[2];
+  cmd->command.read_image.region[0] = region[0];
+  cmd->command.read_image.region[1] = region[1];
+  cmd->command.read_image.region[2] = region[2];
 
-  cmd->command.read_image.device_ptr
-      = image->device_ptrs[command_queue->device->dev_id].mem_ptr;
-  cmd->command.read_image.host_ptr = ptr;
-  cmd->command.read_image.buffer = image;
+  cmd->command.read_image.dst_row_pitch = row_pitch;
+  cmd->command.read_image.dst_slice_pitch = slice_pitch;
+  cmd->command.read_image.dst_offset = 0;
 
   POname(clRetainMemObject) (image);  
   image->owning_device = command_queue->device;

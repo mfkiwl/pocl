@@ -1,5 +1,4 @@
-// Header for AllocasToEntry, an LLVM pass to move allocas to the function 
-// entry node.
+// AllocasToEntry, an LLVM pass to move allocas to the function entry node.
 // 
 // Copyright (c) 2013 Pekka Jääskeläinen / TUT
 // 
@@ -25,6 +24,9 @@
 #include <iostream>
 
 #include "config.h"
+
+#include "CompilerWarnings.h"
+IGNORE_COMPILER_WARNING("-Wunused-parameter")
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>

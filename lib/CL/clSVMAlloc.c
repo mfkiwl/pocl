@@ -30,9 +30,8 @@ POname(clSVMAlloc)(cl_context context,
                    size_t size,
                    unsigned int alignment) CL_API_SUFFIX__VERSION_2_0
 {
-  unsigned i, p;
-
-  POCL_MSG_PRINT_INFO("clSVMAlloc\n");
+  unsigned i;
+  int p;
 
   POCL_RETURN_ERROR_COND((context == NULL), NULL);
 
@@ -41,9 +40,10 @@ POname(clSVMAlloc)(cl_context context,
 
   POCL_RETURN_ERROR_COND((size == 0), NULL);
 
-  POCL_RETURN_ERROR_ON((size > context->min_max_mem_alloc_size), NULL,
-                       "size(%zu) > CL_DEVICE_MAX_MEM_ALLOC_SIZE value "
-                       "for some device in context\n", size);
+  POCL_RETURN_ERROR_ON ((size > context->max_mem_alloc_size), NULL,
+                        "size(%zu) > CL_DEVICE_MAX_MEM_ALLOC_SIZE value "
+                        "for some device in context\n",
+                        size);
 
   /* flags does not contain CL_MEM_SVM_FINE_GRAIN_BUFFER
    * but does contain CL_MEM_SVM_ATOMICS. */
@@ -91,28 +91,9 @@ POname(clSVMAlloc)(cl_context context,
                          NULL, "All devices must support the requested memory "
                          "aligment (%u) \n", alignment);
 
-  /* create a fake (temporary) cl_mem */
-  cl_mem mem = alloca(sizeof(struct _cl_mem));
-  mem->flags = CL_MEM_ALLOC_HOST_PTR | CL_MEM_READ_WRITE;
-  mem->mem_host_ptr = NULL;
-  mem->context = context;
-  mem->size = size;
-  pocl_mem_identifier device_ptrs[pocl_num_devices];
-  device_ptrs[dev->global_mem_id].mem_ptr = NULL;
-  mem->device_ptrs = device_ptrs;
-
-  for (i = 0; i < context->num_devices; ++i)
-    {
-      mem->device_ptrs[i].global_mem_id = context->devices[i]->global_mem_id;
-      mem->device_ptrs[i].mem_ptr = NULL;
-    }
-
-  cl_int errcode = dev->ops->alloc_mem_obj(dev, mem, NULL);
-  /* There was a failure to allocate resources */
-  POCL_RETURN_ERROR_ON((errcode != CL_SUCCESS), NULL,
-                       "Failed to allocate the memory: %u\n", errcode);
-  return device_ptrs[dev->global_mem_id].mem_ptr;
-
+  void *ptr = dev->ops->svm_alloc (dev, flags, size);
+  POCL_MSG_PRINT_INFO ("clSVMAlloc: allocated %zu bytes @ %p\n", size, ptr);
+  return ptr;
 }
-POsym(clSVMAlloc);
+POsym(clSVMAlloc)
 

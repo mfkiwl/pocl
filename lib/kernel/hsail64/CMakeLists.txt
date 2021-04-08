@@ -1,7 +1,7 @@
 #=============================================================================
 #   CMake build system files
 #
-#   Copyright (c) 2015 pocl developers
+#   Copyright (c) 2015-2018 pocl developers
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -25,11 +25,9 @@
 
 include("bitcode_rules")
 
-set(KERNEL_SOURCES ${SOURCES_WITHOUT_VML})
+set(KERNEL_SOURCES ${SOURCES_GENERIC})
 
-foreach(FILE printf.c barrier.ll get_image_depth.cl get_image_dim.cl
-  get_image_height.cl get_image_width.cl read_image.cl write_image.cl
-  get_image_channel_data_type.cl get_image_channel_order.cl)
+foreach(FILE printf.c printf_base.c barrier.ll)
   list(REMOVE_ITEM KERNEL_SOURCES "${FILE}")
 endforeach()
 
@@ -59,10 +57,6 @@ endforeach()
 
 set(CLANG_FLAGS "-emit-llvm" "-target" "hsail64" "-D_CL_DISABLE_HALF")
 
-if(POCL_USE_FAKE_ADDR_SPACE_IDS)
-list(APPEND CLANG_FLAGS "-Xclang" "-ffake-address-space-map")
-endif()
-
 set(KERNEL_CL_FLAGS "-Xclang" "-cl-std=CL${HSA_DEVICE_CL_STD}" "-D__OPENCL_C_VERSION__=${HSA_DEVICE_CL_VERSION}" ${KERNEL_CL_FLAGS})
 
 set(LLC_FLAGS "")
@@ -73,7 +67,7 @@ foreach(EXT ${HSA_DEVICE_EXTENSIONS})
 endforeach()
 separate_arguments(DEVICE_CL_FLAGS)
 
-make_kernel_bc(KERNEL_BC "hsail64" "BCs" ${KERNEL_SOURCES})
+make_kernel_bc(KERNEL_BC "hsail64" "BCs" 0 0 0 ${KERNEL_SOURCES})
 
 # just debug
 message(STATUS "HSAIL64 Kernel BC: ${KERNEL_BC}")
@@ -88,4 +82,4 @@ list(APPEND KERNEL_TARGET_LIST "kernel_hsail64")
 set(KERNEL_TARGET_LIST "${KERNEL_TARGET_LIST}" PARENT_SCOPE)
 
 install(FILES "${KERNEL_BC}"
-        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}")
+        DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}" COMPONENT "lib")

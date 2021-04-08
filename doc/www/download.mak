@@ -2,11 +2,11 @@
         sub_page = "Download"
 %>
 <%inherit file="basic_page.makt" />
-<p>pocl uses the <a href="http://git-scm.com/">git</a> version control system and 
+<p>pocl uses the <a href="http://git-scm.com/">git</a> version control system and
 <a href="http://github.com/pocl/pocl">GitHub</a> for code hosting and issue tracking.</p>
 
-<p>The main development branch is kept stable (should pass all tests all the time), 
-thus the best starting point for using and developing pocl is to check it out from 
+<p>The main development branch is kept stable (should pass all tests all the time),
+thus the best starting point for using and developing pocl is to check it out from
 the version control system:</p>
 
 <pre>
@@ -16,6 +16,43 @@ the version control system:</p>
 <p>We also package releases regularly, usually after each new LLVM release:</p>
 
 <ul>
+
+<li><b>Version 1.6:</b> Supports LLVM versions 6.0 to 11.0.
+            <a href="downloads/pocl-1.6.tar.gz">pocl-1.6.tar.gz (1.6M)</a>,
+            <a href="downloads/CHANGES">change log</a>,
+            <a href="pocl-1.6.html">release notes</a></li>
+
+<li><b>Version 1.5:</b> Supports LLVM versions 6.0 to 10.0.
+            <a href="https://github.com/pocl/pocl/archive/v1.5.tar.gz">pocl-1.5.tar.gz (1.5M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.5.html">release notes</a></li>
+
+<li><b>Version 1.4:</b> Supports LLVM versions 6.0 to 9.0.
+            <a href="https://github.com/pocl/pocl/archive/v1.4.tar.gz">pocl-1.4.tar.gz (1.5M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.4.html">release notes</a></li>
+
+<li><b>Version 1.3:</b> Supports LLVM versions 6.0 to 8.0.
+            <a href="https://github.com/pocl/pocl/archive/v1.3.tar.gz">pocl-1.3.tar.gz (1.4M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.3.html">release notes</a></li>
+
+<li><b>Version 1.2:</b> Supports LLVM 6.0 and 7.0.
+            <a href="https://github.com/pocl/pocl/archive/v1.2.tar.gz">pocl-1.2.tar.gz (1.6M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.2.html">release notes</a></li>
+
+<li><b>Version 1.1:</b> Supports LLVM 5.0 and 6.0.
+            <a href="https://github.com/pocl/pocl/archive/v1.1.tar.gz">pocl-1.1.tar.gz (1.5M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.1.html">release notes</a></li>
+
+
+<li><b>Version 1.0:</b> Supports LLVM 4.0 and 5.0.
+            <a href="/downloads/pocl-1.0.tar.gz">pocl-1.0.tar.gz (1.3M)</a>,
+            <a href="/downloads/CHANGES">change log</a>,
+            <a href="pocl-1.0.html">release notes</a></li>
+
 
 <li><b>Version 0.14:</b> Supports LLVM 3.9 and 4.0.
             <a href="/downloads/pocl-0.14.tar.gz">pocl-0.14.tar.gz (1.2M)</a>,
@@ -62,9 +99,4 @@ the version control system:</p>
             <a href="https://launchpadlibrarian.net/112874115/CHANGES">change log</a>, 
             <a href="https://launchpadlibrarian.net/112874413/notes-0.6.txt">release notes</a></li>
 </ul>
-
-<p>All releases are also available on <a
-href="http://sourceforge.net/projects/pocl/files/">SourceForge</a>.
-
-<p>Operating system binaries for Fedora 19 and later are <a href="rpm.html">available</a>.</p>
 

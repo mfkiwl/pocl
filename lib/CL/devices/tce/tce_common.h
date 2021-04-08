@@ -31,6 +31,7 @@
 #include <string>
 
 #include "TCEString.hh"
+#include "pocl_device.h"
 
 namespace TTAMachine {
   class AddressSpace;
@@ -54,6 +55,9 @@ class TCEDevice {
 
   virtual void copyDeviceToHost
     (uint32_t src_addr, const void *host_ptr, size_t count) = 0;
+
+  virtual void copyDeviceToDevice
+    (uint32_t src_addr, uint32_t dst_addr, size_t count) = 0;
 
   virtual void loadProgramToDevice(const std::string& asmFileName) = 0;
   /* Restarts the device to start the program from the beginning. */
@@ -87,9 +91,10 @@ class TCEDevice {
 
   /* Generates the command line string to execute tcecc to produce the
      kernel binary. */
-  TCEString tceccCommandLine
-    (_cl_command_run *run_cmd, const TCEString& inputSrc, 
-     const TCEString& outputTpef, const TCEString extraParams=TCEString(""));
+  TCEString tceccCommandLine(_cl_command_run *run_cmd, const TCEString &tempDir,
+                             const TCEString &inputSrc,
+                             const TCEString &outputTpef,
+                             const TCEString extraParams = TCEString(""));
 
   bool isMultiCoreMachine() const;
 
@@ -131,9 +136,9 @@ class TCEDevice {
 
 /* The address space ids in the ADFs. */
 #define TTA_ASID_PRIVATE  0
-#define TTA_ASID_GLOBAL   3
-#define TTA_ASID_LOCAL    4
-#define TTA_ASID_CONSTANT 5
+#define TTA_ASID_GLOBAL   1
+#define TTA_ASID_LOCAL    3
+#define TTA_ASID_CONSTANT 2
 
 #define TTA_UNALLOCATED_LOCAL_SPACE (1*1024)
 /* The space to preserve for the command queue etc. in the

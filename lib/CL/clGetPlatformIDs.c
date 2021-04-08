@@ -37,115 +37,115 @@
 */
 #ifdef BUILD_ICD
 struct _cl_icd_dispatch pocl_dispatch = {
-  &POclGetPlatformIDs,
-  &POclGetPlatformInfo,
-  &POclGetDeviceIDs,
-  &POclGetDeviceInfo,
-  &POclCreateContext,
-  &POclCreateContextFromType,
-  &POclRetainContext,
-  &POclReleaseContext,
-  &POclGetContextInfo,
-  &POclCreateCommandQueue,
-  &POclRetainCommandQueue, /* 10 */
-  &POclReleaseCommandQueue,
-  &POclGetCommandQueueInfo,
+  &POname(clGetPlatformIDs),
+  &POname(clGetPlatformInfo),
+  &POname(clGetDeviceIDs),
+  &POname(clGetDeviceInfo),
+  &POname(clCreateContext),
+  &POname(clCreateContextFromType),
+  &POname(clRetainContext),
+  &POname(clReleaseContext),
+  &POname(clGetContextInfo),
+  &POname(clCreateCommandQueue),
+  &POname(clRetainCommandQueue), /* 10 */
+  &POname(clReleaseCommandQueue),
+  &POname(clGetCommandQueueInfo),
   NULL /*clSetCommandQueueProperty*/,
-  &POclCreateBuffer,
-  &POclCreateImage2D,
-  &POclCreateImage3D,
-  &POclRetainMemObject,
-  &POclReleaseMemObject,
-  &POclGetSupportedImageFormats,
-  &POclGetMemObjectInfo, /* 20 */
-  &POclGetImageInfo,
-  &POclCreateSampler,
-  &POclRetainSampler,
-  &POclReleaseSampler,
-  &POclGetSamplerInfo,
-  &POclCreateProgramWithSource,
-  &POclCreateProgramWithBinary,
-  &POclRetainProgram,
-  &POclReleaseProgram,
-  &POclBuildProgram, /* 30 */
-  &POclUnloadCompiler,
-  &POclGetProgramInfo,
-  &POclGetProgramBuildInfo,
-  &POclCreateKernel,
-  &POclCreateKernelsInProgram,
-  &POclRetainKernel,
-  &POclReleaseKernel,
-  &POclSetKernelArg,
-  &POclGetKernelInfo,
-  &POclGetKernelWorkGroupInfo, /* 40 */
-  &POclWaitForEvents,
-  &POclGetEventInfo,
-  &POclRetainEvent,
-  &POclReleaseEvent,
-  &POclGetEventProfilingInfo,
-  &POclFlush,
-  &POclFinish,
-  &POclEnqueueReadBuffer,
-  &POclEnqueueWriteBuffer,
-  &POclEnqueueCopyBuffer, /* 50 */
-  &POclEnqueueReadImage,
-  &POclEnqueueWriteImage,
-  &POclEnqueueCopyImage,
-  &POclEnqueueCopyImageToBuffer,
-  &POclEnqueueCopyBufferToImage,
-  &POclEnqueueMapBuffer,
-  &POclEnqueueMapImage,
-  &POclEnqueueUnmapMemObject,
-  &POclEnqueueNDRangeKernel,
-  &POclEnqueueTask, /* 60 */
-  &POclEnqueueNativeKernel,
-  &POclEnqueueMarker,
-  &POclEnqueueWaitForEvents,
-  &POclEnqueueBarrier,
-  &POclGetExtensionFunctionAddress,
-  NULL, /* &POclCreateFromGLBuffer,      */
-  &POclCreateFromGLTexture2D,
-  &POclCreateFromGLTexture3D,
-  NULL, /* &POclCreateFromGLRenderbuffer, */
-  NULL, /* &POclGetGLObjectInfo,  70       */
-  NULL, /* &POclGetGLTextureInfo,        */
-  NULL, /* &POclEnqueueAcquireGLObjects, */
-  NULL, /* &POclEnqueueReleaseGLObjects, */
-  NULL, /* &POclGetGLContextInfoKHR,     */
+  &POname(clCreateBuffer),
+  &POname(clCreateImage2D),
+  &POname(clCreateImage3D),
+  &POname(clRetainMemObject),
+  &POname(clReleaseMemObject),
+  &POname(clGetSupportedImageFormats),
+  &POname(clGetMemObjectInfo), /* 20 */
+  &POname(clGetImageInfo),
+  &POname(clCreateSampler),
+  &POname(clRetainSampler),
+  &POname(clReleaseSampler),
+  &POname(clGetSamplerInfo),
+  &POname(clCreateProgramWithSource),
+  &POname(clCreateProgramWithBinary),
+  &POname(clRetainProgram),
+  &POname(clReleaseProgram),
+  &POname(clBuildProgram), /* 30 */
+  &POname(clUnloadCompiler),
+  &POname(clGetProgramInfo),
+  &POname(clGetProgramBuildInfo),
+  &POname(clCreateKernel),
+  &POname(clCreateKernelsInProgram),
+  &POname(clRetainKernel),
+  &POname(clReleaseKernel),
+  &POname(clSetKernelArg),
+  &POname(clGetKernelInfo),
+  &POname(clGetKernelWorkGroupInfo), /* 40 */
+  &POname(clWaitForEvents),
+  &POname(clGetEventInfo),
+  &POname(clRetainEvent),
+  &POname(clReleaseEvent),
+  &POname(clGetEventProfilingInfo),
+  &POname(clFlush),
+  &POname(clFinish),
+  &POname(clEnqueueReadBuffer),
+  &POname(clEnqueueWriteBuffer),
+  &POname(clEnqueueCopyBuffer), /* 50 */
+  &POname(clEnqueueReadImage),
+  &POname(clEnqueueWriteImage),
+  &POname(clEnqueueCopyImage),
+  &POname(clEnqueueCopyImageToBuffer),
+  &POname(clEnqueueCopyBufferToImage),
+  &POname(clEnqueueMapBuffer),
+  &POname(clEnqueueMapImage),
+  &POname(clEnqueueUnmapMemObject),
+  &POname(clEnqueueNDRangeKernel),
+  &POname(clEnqueueTask), /* 60 */
+  &POname(clEnqueueNativeKernel),
+  &POname(clEnqueueMarker),
+  &POname(clEnqueueWaitForEvents),
+  &POname(clEnqueueBarrier),
+  &POname(clGetExtensionFunctionAddress),
+  &POname(clCreateFromGLBuffer),
+  &POname(clCreateFromGLTexture2D),
+  &POname(clCreateFromGLTexture3D),
+  &POname(clCreateFromGLRenderbuffer),
+  &POname(clGetGLObjectInfo),
+  &POname(clGetGLTextureInfo),
+  &POname(clEnqueueAcquireGLObjects),
+  &POname(clEnqueueReleaseGLObjects),
+  &POname(clGetGLContextInfoKHR),
   NULL, /* &clUnknown75 */
   NULL, /* &clUnknown76 */
   NULL, /* &clUnknown77 */
   NULL, /* &clUnknown78 */
   NULL, /* &clUnknown79 */
   NULL, /* &clUnknown80 */
-  &POclSetEventCallback,
-  &POclCreateSubBuffer,
-  &POclSetMemObjectDestructorCallback,
-  &POclCreateUserEvent,
-  &POclSetUserEventStatus,
-  &POclEnqueueReadBufferRect,
-  &POclEnqueueWriteBufferRect,
-  &POclEnqueueCopyBufferRect,
-  NULL, /* &POclCreateSubDevicesEXT,     */
-  &POclRetainDevice, /* &POclRetainDeviceEXT,         */
-  &POclReleaseDevice, /* &POclReleaseDeviceEXT,        */
+  &POname(clSetEventCallback),
+  &POname(clCreateSubBuffer),
+  &POname(clSetMemObjectDestructorCallback),
+  &POname(clCreateUserEvent),
+  &POname(clSetUserEventStatus),
+  &POname(clEnqueueReadBufferRect),
+  &POname(clEnqueueWriteBufferRect),
+  &POname(clEnqueueCopyBufferRect),
+  NULL, /* &POname(clCreateSubDevicesEXT),     */
+  &POname(clRetainDevice), /* &POname(clRetainDeviceEXT),         */
+  &POname(clReleaseDevice), /* &POname(clReleaseDeviceEXT),        */
   NULL, /* &clUnknown92 */
-  &POclCreateSubDevices,
-  &POclRetainDevice,
-  &POclReleaseDevice,
-  &POclCreateImage,
-  &POclCreateProgramWithBuiltInKernels,
-  &POclCompileProgram,
-  &POclLinkProgram,
-  &POclUnloadPlatformCompiler, 
-  &POclGetKernelArgInfo,
-  &POclEnqueueFillBuffer,
-  &POclEnqueueFillImage,
-  &POclEnqueueMigrateMemObjects,
-  &POclEnqueueMarkerWithWaitList,
-  &POclEnqueueBarrierWithWaitList,
-  &POclGetExtensionFunctionAddressForPlatform,
-  NULL, /* &POclCreateFromGLTexture,     */
+  &POname(clCreateSubDevices),
+  &POname(clRetainDevice),
+  &POname(clReleaseDevice),
+  &POname(clCreateImage),
+  &POname(clCreateProgramWithBuiltInKernels),
+  &POname(clCompileProgram),
+  &POname(clLinkProgram),
+  &POname(clUnloadPlatformCompiler),
+  &POname(clGetKernelArgInfo),
+  &POname(clEnqueueFillBuffer),
+  &POname(clEnqueueFillImage),
+  &POname(clEnqueueMigrateMemObjects),
+  &POname(clEnqueueMarkerWithWaitList),
+  &POname(clEnqueueBarrierWithWaitList),
+  &POname(clGetExtensionFunctionAddressForPlatform),
+  &POname(clCreateFromGLTexture),
   NULL, /* &clUnknown109 */
   NULL, /* &clUnknown110 */
   NULL, /* &clUnknown111 */
@@ -161,22 +161,22 @@ struct _cl_icd_dispatch pocl_dispatch = {
   NULL, /* &clUnknown121 */
   NULL, /* &clUnknown122 */
 #if (OCL_ICD_IDENTIFIED_FUNCTIONS > 110)
-  &POclCreateCommandQueueWithProperties,
-  NULL, /* &POclCreatePipe,*/
-  NULL, /* &POclGetPipeInfo,*/
-  &POclSVMAlloc,
-  &POclSVMFree,
-  &POclEnqueueSVMFree,
-  &POclEnqueueSVMMemcpy,
-  &POclEnqueueSVMMemFill,
-  &POclEnqueueSVMMap,
-  &POclEnqueueSVMUnmap,
+  &POname(clCreateCommandQueueWithProperties),
+  NULL, /* &POname(clCreatePipe),*/
+  NULL, /* &POname(clGetPipeInfo),*/
+  &POname(clSVMAlloc),
+  &POname(clSVMFree),
+  &POname(clEnqueueSVMFree),
+  &POname(clEnqueueSVMMemcpy),
+  &POname(clEnqueueSVMMemFill),
+  &POname(clEnqueueSVMMap),
+  &POname(clEnqueueSVMUnmap),
   NULL, /* clCreateSamplerWithProperties */
-  &POclSetKernelArgSVMPointer,
-  &POclSetKernelExecInfo,
-  NULL, /* &clUnknown136 */
-  NULL, /* &clUnknown137 */
-  NULL, /* &clUnknown138 */
+  &POname(clSetKernelArgSVMPointer),
+  &POname(clSetKernelExecInfo),
+  NULL, /* clGetKernelSubGroupInfoKHR */
+  NULL, /* clCloneKernel */
+  &POname(clCreateProgramWithIL),
   NULL, /* &clUnknown139 */
   NULL, /* &clUnknown140 */
   NULL, /* &clUnknown141 */
@@ -219,11 +219,16 @@ struct _cl_icd_dispatch pocl_dispatch = {
   NULL, /* &clUnknown176 */
   NULL, /* &clUnknown177 */
 #endif
+#if (OCL_ICD_IDENTIFIED_FUNCTIONS > 129)
+  NULL, /* &clUnknown178 */
+  NULL, /* &clUnknown179 */
+#endif
 };
 
-struct _cl_platform_id _platforms[1]  = {{&pocl_dispatch}};
+static struct _cl_platform_id _platforms[1]  = {{&pocl_dispatch}};
 #else
-struct _cl_platform_id _platforms[1]  = {};
+
+static struct _cl_platform_id _platforms[1] = {{ 1 }};
 #endif
 
 #ifdef __GNUC__
@@ -236,23 +241,25 @@ struct _cl_platform_id _platforms[1]  = {};
  */ 
 CL_API_ENTRY cl_int CL_API_CALL
 POname(clGetPlatformIDs)(cl_uint           num_entries,
-                 cl_platform_id *  platforms,
-                 cl_uint *         num_platforms) CL_API_SUFFIX__VERSION_1_0
-{	
-  const unsigned num = 1;
-  unsigned i;
-  
+                         cl_platform_id *  platforms,
+                         cl_uint *         num_platforms) CL_API_SUFFIX__VERSION_1_0
+{
+  POCL_RETURN_ERROR_COND ((platforms == NULL && num_entries > 0),
+                          CL_INVALID_VALUE);
+
+  POCL_RETURN_ERROR_COND ((platforms != NULL && num_entries == 0),
+                          CL_INVALID_VALUE);
+
+  POCL_RETURN_ERROR_COND ((num_platforms == NULL && num_entries == 0),
+                          CL_SUCCESS);
+
   if (platforms != NULL) {
-    if (num_entries < num)
-      return CL_INVALID_VALUE;
-    
-    for (i=0; i<num; ++i)
-      platforms[i] = &_platforms[i];
+      platforms[0] = &_platforms[0];
   }
   
   if (num_platforms != NULL)
-    *num_platforms = num;
-  
+    *num_platforms = 1;
+
   return CL_SUCCESS;
 }
 POsym(clGetPlatformIDs)

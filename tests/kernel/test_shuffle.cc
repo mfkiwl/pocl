@@ -28,7 +28,7 @@ cl_command_queue queue;
 
 #define ERRCHECK()  if (check_cl_error(errcode, __LINE__, __FUNCTION__)) abort();
 
-static const unsigned vecelts[5]={2,3,4,8,16};
+static const unsigned vecelts[] = {2,4,8,16};
 static const int stimuli[] = {4, 2, 69, 4, 5, 0, 45, 16, 4, 6, 1, 18, 28, 14,
                  22, 16, 8, 2, 0, 31, 42, 11, 62, 88, 99, 23, 13};
 
@@ -71,8 +71,8 @@ private:
         mask_type = "UNKNOWN_MASK";
     }
 
-    for(unsigned n_loop=0; n_loop<5; n_loop++) {
-        for(unsigned m_loop=0; m_loop<5; m_loop++) {
+    for(unsigned n_loop=0; n_loop<4; n_loop++) {
+        for(unsigned m_loop=0; m_loop<4; m_loop++) {
 
             n = vecelts[n_loop];
             m = vecelts[m_loop];
@@ -80,12 +80,12 @@ private:
             buf[0] = 0;
             rv=sprintf(buf,
                            "__kernel void test_shuffle_%d_%d("
-                           "__global %s%d *in, __global %s%d *mask, __global %s%d *out) {\n"
+                           "__global const %s%d *in, __global const %s%d *mask, __global %s%d *out) {\n"
                            "*out = shuffle( *in, *mask);\n}\n",
                            m, n, ocl_type, m, mask_type, n, ocl_type, n);
             rv+=sprintf(buf+rv,
                            "__kernel void test_shuffle2_%d_%d("
-                           "__global %s%d *in1, __global %s%d *in2, __global %s%d *mask, __global %s%d *out) {\n"
+                           "__global const %s%d *in1, __global const %s%d *in2, __global const %s%d *mask, __global %s%d *out) {\n"
                            "*out = shuffle2( *in1, *in2, *mask);\n}\n",
                            m, n, ocl_type, m, ocl_type, m, mask_type, n, ocl_type, n);
             src.append(buf);
@@ -93,8 +93,8 @@ private:
     }
   }
 
-  #define nsize (n==3?4:n)
-  #define msize (m==3?4:m)
+  #define nsize n
+  #define msize m
   // assume out is filled with 'shuffle(in, mask)'	// return true if ok
   bool output_matches_1(unsigned n, unsigned m)
   {
@@ -200,10 +200,9 @@ private:
         std::cout << ");" << std::endl;
         rv=false;
       }
-
-    // Now test shuffle2()
     clReleaseKernel(krn);
 
+    // Now test shuffle2()
     snprintf(kern_name2, 128, "test_shuffle2_%d_%d", m, n);
     krn2 = clCreateKernel(prog, kern_name2, &errcode);
     ERRCHECK()
@@ -236,7 +235,7 @@ private:
         std::cout << ");" << std::endl;
         rv=false;
       }
-    clReleaseKernel(krn2);
+    CHECK_CL_ERROR (clReleaseKernel(krn2));
     return rv;
   }
 
@@ -252,10 +251,19 @@ public:
       mask1[i] = (M)stimuli[i];
       mask2[i] = (M)stimuli[i];
     }
+
+    for (unsigned n_loop = 0; n_loop < 4; n_loop++) {
+      for (unsigned m_loop = 0; m_loop < 4; m_loop++) {
+        unsigned m = vecelts[m_loop];
+        for (unsigned i = 0; i < m; i++) {
+          in2[i] = (D)(i + m);
+          in1[i] = (D)i;
+        }
+      }
+    }
   }
 
-  unsigned run()
-  {
+  unsigned run() {
 
     // Fixed pseudorandom stimuli to make the test deterministic.
     // Random stimuli leads to randomly appearing/disappearing
@@ -296,28 +304,22 @@ public:
     ERRCHECK()
 
     unsigned errors = 0;
-    for(unsigned n_loop=0; n_loop<5; n_loop++) {
-          for(unsigned m_loop=0; m_loop<5; m_loop++) {
-              unsigned m = vecelts[m_loop];
-              for(unsigned i=0; i<m; i++) {
-                in2[i]=(D)(i+m);
-                in1[i] = (D)i;
-              }
-              if (!run_single_test(vecelts[n_loop], vecelts[m_loop]))
-                errors++;
-          }
+    for (unsigned n_loop = 0; n_loop < 4; n_loop++) {
+      for (unsigned m_loop = 0; m_loop < 4; m_loop++) {
+        if (!run_single_test(vecelts[n_loop], vecelts[m_loop]))
+          errors++;
+      }
     }
 
-    clReleaseMemObject(mem_in1);
-    clReleaseMemObject(mem_in2);
-    clReleaseMemObject(mem_mask1);
-    clReleaseMemObject(mem_mask2);
-    clReleaseMemObject(mem_out);
-    clReleaseProgram(prog);
+    CHECK_CL_ERROR (clReleaseMemObject(mem_in1));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_in2));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_mask1));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_mask2));
+    CHECK_CL_ERROR (clReleaseMemObject(mem_out));
+    CHECK_CL_ERROR (clReleaseProgram(prog));
 
     return errors;
   }
-
 };
 
 
@@ -403,6 +405,9 @@ int main( int argc, char *argv[])
 #if (__GNUC__ > 5)
 #pragma GCC diagnostic pop
 #endif
+	CHECK_CL_ERROR (clReleaseCommandQueue (queue));
+	CHECK_CL_ERROR (clReleaseContext (ctx));
+	CHECK_CL_ERROR (clUnloadCompiler());
 
 	if( num_errors == 0)
 		std::cout << "OK" << std::endl;

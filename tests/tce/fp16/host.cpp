@@ -38,7 +38,6 @@ static char
 kernelSourceCode[] = 
 "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
 //"#pragma OPENCL EXTENSION cl_khr_fp16 : disable\n"
-"int putchar(int c);\n"
 "kernel \n"
 "void test_kernel(float a) {\n"
 "   half h1 = (half)(a);\n"
@@ -135,7 +134,7 @@ main(void)
             enqEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>() << std::endl;
 #endif
     } 
-    catch (cl::Error err) {
+    catch (cl::Error &err) {
          std::cerr
              << "ERROR: "
              << err.what()

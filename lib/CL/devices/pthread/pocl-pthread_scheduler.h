@@ -36,22 +36,12 @@
 typedef struct pool_thread_data thread_data;
 
 /* Initializes scheduler. Must be called before any kernel enqueue */
-void pthread_scheduler_init (size_t num_worker_threads);
+void pthread_scheduler_init (cl_device_id device);
 
-void pthread_scheduler_uinit ();
+void pthread_scheduler_uninit ();
 
 /* Gives ready-to-execute command for scheduler */
 void pthread_scheduler_push_command (_cl_command_node *cmd);
-
-
-void pthread_scheduler_push_kernel (kernel_run_command *run_cmd);
-
-/* blocks until given command queue is empty == finished */
-void pthread_scheduler_wait_cq (cl_command_queue cq);
-
-void pthread_scheduler_release_host ();
-
-int pthread_scheduler_get_work (thread_data *td, _cl_command_node **cmd_ptr);
 
 #ifdef __GNUC__
 #pragma GCC visibility pop

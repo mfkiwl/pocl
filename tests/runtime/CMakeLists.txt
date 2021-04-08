@@ -24,24 +24,20 @@
 #=============================================================================
 
 
+# do not link test_dlopen with -lOpenCL
+add_executable("test_dlopen" "test_dlopen.c")
+target_link_libraries("test_dlopen" ${DL_LIB})
+
 set(PROGRAMS_TO_BUILD test_clFinish test_clGetDeviceInfo test_clGetEventInfo
   test_clCreateProgramWithBinary test_clGetSupportedImageFormats
   test_clSetEventCallback test_clEnqueueNativeKernel test_clBuildProgram
   test_clCreateKernelsInProgram test_clCreateKernel test_clGetKernelArgInfo
   test_version test_kernel_cache_includes test_event_cycle test_link_error
   test_read-copy-write-buffer test_buffer-image-copy test_clCreateSubDevices test_event_free
-  test_enqueue_kernel_from_binary test_user_event
+  test_event_double_wait
+  test_enqueue_kernel_from_binary test_user_event test_fill-buffer
   test_clSetMemObjectDestructorCallback)
 
-#EXTRA_DIST= \
-# test_kernel_src_in_pwd.h \
-# test_clCreateKernelsInProgram.cl \
-# test_data/test_kernel_src_in_another_dir.h
-
-#AM_LDFLAGS = @OPENCL_LIBS@ ../../lib/poclu/libpoclu.la
-# POCLU_LINK_OPTIONS
-
-#AM_CPPFLAGS = -I$(top_srcdir)/fix-include -I$(top_srcdir)/include @OPENCL_CFLAGS@
 add_compile_options(${OPENCL_CFLAGS})
 
 foreach(PROG ${PROGRAMS_TO_BUILD})
@@ -75,10 +71,11 @@ add_test_pocl(NAME "runtime/clFinish" COMMAND "test_clFinish")
 
 add_test_pocl(NAME "runtime/test_event_cycle" COMMAND "test_event_cycle")
 
-# currently fails, see commit 13e5bc89a6b7675efbc
-#add_test("runtime/test_link_error" "test_link_error")
+add_test_pocl(NAME "runtime/test_link_error" COMMAND "test_link_error")
 
 add_test_pocl(NAME "runtime/test_read-copy-write-buffer" COMMAND "test_read-copy-write-buffer")
+
+add_test_pocl(NAME "runtime/test_fill-buffer" COMMAND "test_fill-buffer")
 
 add_test_pocl(NAME "runtime/test_buffer-image-copy" COMMAND "test_buffer-image-copy")
 
@@ -98,6 +95,8 @@ add_test_pocl(NAME "runtime/clCreateSubDevices" COMMAND  "test_clCreateSubDevice
 
 add_test_pocl(NAME "runtime/test_event_free" COMMAND  "test_event_free")
 
+add_test_pocl(NAME "runtime/test_event_double_wait" COMMAND  "test_event_double_wait")
+
 add_test_pocl(NAME "runtime/test_enqueue_kernel_from_binary" COMMAND "test_enqueue_kernel_from_binary")
 
 add_test_pocl(NAME "runtime/test_user_event" COMMAND  "test_user_event")
@@ -110,31 +109,30 @@ set_tests_properties( "runtime/clGetDeviceInfo" "runtime/clEnqueueNativeKernel"
   "runtime/clGetSupportedImageFormats" "runtime/clCreateKernelsInProgram"
   "runtime/clCreateKernel" "runtime/clGetKernelArgInfo"
   "runtime/test_kernel_cache_includes" "runtime/test_event_cycle"
-  "runtime/test_read-copy-write-buffer" "runtime/test_buffer-image-copy" #"runtime/test_link_error"
-  "runtime/test_event_free" "runtime/clCreateSubDevices"
+  "runtime/test_read-copy-write-buffer" "runtime/test_buffer-image-copy"
+  "runtime/test_fill-buffer"
+  "runtime/test_event_free" "runtime/test_event_double_wait" "runtime/clCreateSubDevices"
   "runtime/test_enqueue_kernel_from_binary" "runtime/test_user_event"
-  "runtime/clSetMemObjectDestructorCallback"
+  "runtime/clSetMemObjectDestructorCallback" "runtime/test_link_error"
   PROPERTIES
     COST 2.0
     PROCESSORS 1
     DEPENDS "pocl_version_check"
     LABELS "internal;runtime")
 
-set_tests_properties("runtime/clGetSupportedImageFormats"
-  PROPERTIES
-    ENVIRONMENT "POCL_DEVICES=pthread\ pthread")
-
-set_tests_properties("runtime/clCreateKernelsInProgram"
+if(NOT ENABLE_ANYSAN)
+  set_tests_properties("runtime/clCreateKernelsInProgram"
   PROPERTIES
     PASS_REGULAR_EXPRESSION "Hello\nWorld")
 
-set_tests_properties("runtime/clFinish"
+  set_tests_properties("runtime/clFinish"
   PROPERTIES
     PASS_REGULAR_EXPRESSION "ABABC")
 
-set_tests_properties("runtime/test_kernel_cache_includes"
+  set_tests_properties("runtime/test_kernel_cache_includes"
   PROPERTIES PASS_REGULAR_EXPRESSION
   "function 1.*first include.*function 2.*second include")
+endif()
 
 # Label tests that work with CUDA backend
 set_property(TEST
@@ -144,12 +142,34 @@ set_property(TEST
   "runtime/test_kernel_cache_includes"
   "runtime/clFinish"
   "runtime/test_read-copy-write-buffer"
+  "runtime/test_fill-buffer"
   "runtime/test_buffer-image-copy"
   "runtime/clSetEventCallback"
   "runtime/clGetSupportedImageFormats"
   "runtime/clCreateKernelsInProgram"
   "runtime/test_event_cycle"
+  "runtime/test_event_free"
+  "runtime/test_event_double_wait"
   "runtime/test_user_event"
   "runtime/clSetMemObjectDestructorCallback"
-  "runtime/test_enqueue_kernel_from_binary"
   APPEND PROPERTY LABELS "cuda")
+
+set_property(TEST
+  "runtime/clGetDeviceInfo"
+  "runtime/clGetEventInfo"
+  "runtime/clCreateProgramWithBinary"
+  "runtime/clBuildProgram"
+  "runtime/test_kernel_cache_includes"
+  "runtime/test_event_cycle"
+  "runtime/test_link_error"
+  "runtime/test_buffer-image-copy"
+  "runtime/clCreateKernel"
+  "runtime/clGetKernelArgInfo"
+  "runtime/clGetSupportedImageFormats"
+  "runtime/clSetEventCallback"
+  "runtime/clCreateKernelsInProgram"
+  "runtime/clFinish"
+  "runtime/test_enqueue_kernel_from_binary"
+  "runtime/test_user_event"
+  "runtime/clSetMemObjectDestructorCallback"
+  APPEND PROPERTY LABELS "hsa-native")

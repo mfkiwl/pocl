@@ -1,7 +1,8 @@
 /* OpenCL runtime library: clGetProgramBuildInfo()
 
-   Copyright (c) 2011 Kalle Raiskila 
-   
+   Copyright (c) 2011 Kalle Raiskila
+                 2011-2019 Pekka Jääskeläinen / Tampere University
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
    in the Software without restriction, including without limitation the rights
@@ -62,31 +63,26 @@ POname(clGetProgramBuildInfo)(cl_program            program,
       POCL_RETURN_ERROR_ON((program->build_status == CL_BUILD_NONE),
                            CL_INVALID_PROGRAM,
                            "Program was not built");
-      char *build_log;
-      if (program->main_build_log[0])
-          build_log = strdup(program->main_build_log);
-      else if (program->build_log[device_i])
-          build_log = strdup(program->build_log[device_i]);
-      else
-          build_log = pocl_cache_read_buildlog(program, device_i);
-      if (program->build_status == CL_BUILD_NONE)
-          build_log = "";
-      POCL_RETURN_ERROR_ON((build_log==NULL), CL_OUT_OF_HOST_MEMORY, "failed to read build log");
-
-      size_t const value_size = strlen(build_log) + 1;
-      if (param_value)
-      {
-        if (param_value_size < value_size)
+      if (program->builtin_kernel_names != NULL)
         {
-            POCL_MEM_FREE(build_log);
-            return CL_INVALID_VALUE;
+          POCL_RETURN_GETINFO_STR ("");
         }
-        memcpy(param_value, build_log, value_size);
-      }
-      POCL_MEM_FREE(build_log);
-      if (param_value_size_ret)
-        *param_value_size_ret = value_size;
-      return CL_SUCCESS;
+      if (program->main_build_log[0])
+        {
+          POCL_RETURN_GETINFO_STR (program->main_build_log);
+        }
+      else if (program->build_log[device_i])
+        {
+          POCL_RETURN_GETINFO_STR (program->build_log[device_i]);
+        }
+      else
+        {
+          char *build_log = pocl_cache_read_buildlog (program, device_i);
+          if (build_log)
+            POCL_RETURN_GETINFO_STR_FREE (build_log);
+        }
+
+      POCL_RETURN_GETINFO_STR ("");
     }
   case CL_PROGRAM_BINARY_TYPE:
     {

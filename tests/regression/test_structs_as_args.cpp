@@ -31,6 +31,9 @@
 #include <cstdlib>
 #include <iostream>
 
+#undef SRCDIR
+#include "config.h"
+
 #define WORK_ITEMS 1
 
 // Currently assume these types map the OpenCL types, might be better to use
@@ -41,23 +44,27 @@
 // the origin of the problem.
 
 struct int_single {
-    int a; 
+    cl_int a;
 };
 
 struct int_pair {
-    long int a;
-    long int b;
+    cl_long a;
+    cl_long b;
 };
 
 struct test_struct {
-    int elementA;
-    int elementB;
-    long long elementC;
-    char elementD;
-    long long elementE;
-    float elementF;
-    short elementG;
-    double elementH;
+    cl_int elementA;
+    cl_int elementB;
+    cl_long elementC;
+    cl_char elementD;
+    cl_long elementE;
+    cl_float elementF;
+    cl_short elementG;
+#ifdef _CL_DISABLE_DOUBLE
+    cl_long elementH;
+#else
+    cl_double elementH;
+#endif
 };
 
 static char
@@ -77,7 +84,11 @@ kernelSourceCode[] =
 "    long elementE;\n"
 "    float elementF;\n"
 "    short elementG;\n"
+"#ifdef cl_khr_fp64\n"
 "    double elementH;\n"
+"#else\n"
+"    long elementH;\n"
+"#endif\n"
 "} test_struct;\n"
 "\n"
 "kernel void test_single(int_single input, global int* output) {"
@@ -271,7 +282,7 @@ main(void)
         // or release any objects as this all happens implicitly with
         // the C++ Wrapper API.
     } 
-    catch (cl::Error err) {
+    catch (cl::Error &err) {
          std::cerr
              << "ERROR: "
              << err.what()

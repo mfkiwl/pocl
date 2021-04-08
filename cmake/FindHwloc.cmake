@@ -119,7 +119,7 @@ if(WIN32)
   find_package_handle_standard_args(
     Hwloc
     FOUND_VAR Hwloc_FOUND
-    REQUIRED_VARS Hwloc_LIBRARY Hwloc_INCLUDE_DIR
+    REQUIRED_VARS Hwloc_LIBRARY Hwloc_INCLUDE_DIR Hwloc_VERSION_PARSED Hwloc_VERSION_MAJOR Hwloc_VERSION_MINOR
     VERSION_VAR Hwloc_VERSION)
 
   mark_as_advanced(
@@ -134,34 +134,10 @@ if(WIN32)
 
 else()
 
-  if(CMAKE_CROSSCOMPILING)
-
-  find_path(Hwloc_INCLUDE_DIRS
-    NAMES
-      hwloc.h
-    PATHS
-      ENV HWLOC_ROOT
-  )
-
-  find_library(Hwloc_LIBRARIES
-    NAMES
-      hwloc
-    PATHS
-      ENV HWLOC_ROOT
-  )
-
-  if(Hwloc_INCLUDE_DIRS AND Hwloc_LIBRARIES)
-    message(WARNING "HWLOC library found using find_library() - cannot determine version. Assuming 1.7.0")
-    set(Hwloc_FOUND 1)
-    set(Hwloc_VERSION "1.7.0")
-  endif()
-
-  else() # Find with pkgconfig for non-crosscompile builds
-
   find_package(PkgConfig)
 
   if(HWLOC_ROOT)
-    set(ENV{PKG_CONFIG_PATH} "${HWLOC_ROOT}/lib/pkgconfig")
+    set(ENV{PKG_CONFIG_PATH} "${HWLOC_ROOT}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
   else()
     foreach(PREFIX ${CMAKE_PREFIX_PATH})
       set(PKG_CONFIG_PATH "${PKG_CONFIG_PATH}:${PREFIX}/lib/pkgconfig")
@@ -188,6 +164,13 @@ else()
   endif()
 
   if(Hwloc_FOUND)
+    string(REPLACE "." ";" Hwloc_VERSION_PARSED "${Hwloc_VERSION}")
+    set(Hwloc_VERSION "${Hwloc_VERSION}" CACHE STRING "version of Hwloc as a list")
+    list(GET Hwloc_VERSION_PARSED 0 Hwloc_VERSION_MAJOR)
+    set(Hwloc_VERSION_MAJOR "${Hwloc_VERSION_MAJOR}" CACHE STRING "Major version of Hwloc")
+    list(GET Hwloc_VERSION_PARSED 1 Hwloc_VERSION_MINOR)
+    set(Hwloc_VERSION_MINOR "${Hwloc_VERSION_MINOR}" CACHE STRING "Minor version of Hwloc")
+
     include(FindPackageHandleStandardArgs)
     find_package_handle_standard_args(Hwloc DEFAULT_MSG Hwloc_LIBRARIES)
 
@@ -201,7 +184,5 @@ else()
     endif()
   endif()
 
-  endif() # cross-compile else
 
 endif()
-

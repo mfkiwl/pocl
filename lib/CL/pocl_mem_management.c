@@ -1,30 +1,42 @@
-/* pocl_cl.h - local runtime library declarations.
+/* pocl_mem_management.c - manage allocation of runtime objects
 
    Copyright (c) 2014 Ville Korhonen
-   
+
    Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
+   of this software and associated documentation files (the "Software"), to
+   deal in the Software without restriction, including without limitation the
+   rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+   sell copies of the Software, and to permit persons to whom the Software is
    furnished to do so, subject to the following conditions:
-   
+
    The above copyright notice and this permission notice shall be included in
    all copies or substantial portions of the Software.
-   
+
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-   THE SOFTWARE.
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
 */
 
 #include "pocl_mem_management.h"
 #include "pocl.h"
 #include "utlist.h"
 #include <string.h>
+
+#ifndef USE_POCL_MEMMANAGER
+
+cl_event pocl_mem_manager_new_event ()
+{
+  cl_event ev = (cl_event) calloc (1, sizeof (struct _cl_event));
+  if (ev != NULL)
+    POCL_INIT_OBJECT(ev);
+  return ev;
+}
+
+#else
 
 typedef struct _mem_manager
 {
@@ -69,13 +81,13 @@ cl_event pocl_mem_manager_new_event ()
     {
       LL_DELETE (mm->event_list, ev);
       POCL_UNLOCK (mm->event_lock);
+      POCL_INIT_OBJECT (ev); /* reinit the pocl_lock mutex */
       return ev;
     }
   POCL_UNLOCK (mm->event_lock);
 
   ev = (struct _cl_event*) calloc (1, sizeof (struct _cl_event));
   POCL_INIT_OBJECT(ev);
-  ev->pocl_refcount = 1;
   return ev;
 }
 
@@ -133,3 +145,5 @@ void pocl_mem_manager_free_event_node (event_node *ed)
   LL_PREPEND (mm->event_node_list, ed);
   POCL_UNLOCK (mm->event_node_lock);
 }
+
+#endif

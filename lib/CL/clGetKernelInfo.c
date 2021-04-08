@@ -39,13 +39,18 @@ POname(clGetKernelInfo)(cl_kernel      kernel ,
   case CL_KERNEL_FUNCTION_NAME:
     POCL_RETURN_GETINFO_STR(kernel->name);
   case CL_KERNEL_NUM_ARGS:
-    POCL_RETURN_GETINFO(cl_uint, kernel->num_args);
+    POCL_RETURN_GETINFO (cl_uint, kernel->meta->num_args);
   case CL_KERNEL_REFERENCE_COUNT:
     POCL_RETURN_GETINFO(cl_uint, kernel->pocl_refcount);
   case CL_KERNEL_CONTEXT:
     POCL_RETURN_GETINFO(cl_context, kernel->context);
   case CL_KERNEL_PROGRAM:
     POCL_RETURN_GETINFO(cl_program, kernel->program);
+  case CL_KERNEL_ATTRIBUTES:
+    if (kernel->meta->attributes)
+      POCL_RETURN_GETINFO_STR (kernel->meta->attributes);
+    else
+      POCL_RETURN_GETINFO_STR ("");
   }
   return CL_INVALID_VALUE;
 }
